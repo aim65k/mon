@@ -112,6 +112,12 @@ daPgExecFunc(qry_t *spQry)
     FINALLY 
     END 
 }
+#include <pthread.h>
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+int ready_to_work = 0; // 스레드가 일해도 되는지 체크하는 플래그
+
 int
 daPgCopyEnd(qry_t *spQry)
 {
@@ -125,6 +131,13 @@ daPgCopyEnd(qry_t *spQry)
     while ((res = PQgetResult(spQry->spPgConn)) != NULL) {
         if (PQresultStatus(res) != PGRES_COMMAND_OK) {
             daPgDie(spQry, res, "COPY result failed");
+            PQclear(res);
+            pthread_mutex_lock(&mutex);
+            while (ready_to_work == 0) {
+                // 이 함수가 실행되면 이 스레드는 멈추고 CPU 점유율을 0%로 만듭니다.
+                pthread_cond_wait(&cond, &mutex); 
+            }
+            pthread_mutex_unlock(&mutex);
             return -1;
         }
         PQclear(res);

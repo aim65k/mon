@@ -10,11 +10,10 @@ README.md
 *.so
 *.a
 # prj/mon 폴더 안의 dbd_pg 같은 컴파일된 최종 실행 파일 이름을 직접 지정해서 제외합니다.
-mon/src/dbd_pg
-mon/src/dbd_maria
-mon/src/dbd_mssql
-mon/src/dbd_oracle
-mig/src/dbm
+src/dbd_pg
+src/dbd_maria
+src/dbd_mssql
+src/dbd_oracle
 
 # query header
 *.inc
@@ -34,9 +33,4 @@ core.*
 
 # 관리안하는 source
 cl.sh
-mig/src/metadb_dbm.c
-mig/src/metadb_dbm.h
-mig/src/mig.c
-mig/src/mig.h
-mig/src/read.txt
 
