@@ -1,6 +1,7 @@
 #include "main_dbd.h"
 #include "common_dbd.h"
 
+
 void 
 daAppendString(char **buf, size_t *cap, size_t *len, const char *s)
 {
