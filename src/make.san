@@ -1,0 +1,54 @@
+#=======================================================================
+# Oracle 19c Pro*C + PostgreSQL libpq Makefile
+#=======================================================================
+
+ORACLE_HOME ?= /opt/oracle/product/19c/client_1
+PROC        ?= $(ORACLE_HOME)/bin/proc
+CC          = /usr/bin/gcc
+
+TARGET      = sena
+
+PG_INC      = $(shell pg_config --includedir)
+PG_LIB      = $(shell pg_config --libdir)
+
+ORA_INC     = -I$(ORACLE_HOME)/precomp/public \
+              -I$(ORACLE_HOME)/rdbms/public
+
+ORA_LIB     = -L$(ORACLE_HOME)/lib
+
+PRJ_INC     = -I. -I../lib
+PRJ_LIB     = -L../lib
+
+CFLAGS      = -O0 -g -m64 -D_GNU_SOURCE -D_LINUX -fPIC \
+              -Wall -Wextra \
+				-fsanitize=address \
+              $(PRJ_INC) $(ORA_INC) -I$(PG_INC) \
+		      -I/usr/pgsql-16/include
+
+LDFLAGS     = $(ORA_LIB) -L$(PG_LIB) $(PRJ_LIB) -fsanitize=address -L/usr/lib/gcc/x86_64-redhat-linux/11
+
+LIBS        = -lclntsh -lpq -let -lm -ldl -lpthread -lrt
+
+#OBJS        = sena.o thread.o postgre.o ora.o
+OBJS        = sena.o thread.o ora.o pg.o
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
+
+ora.c: ora.pc
+	$(PROC) iname=ora.pc oname=ora.c parse=none sqlcheck=semantics THREADS=YES \
+		include=$(ORACLE_HOME)/precomp/public \
+		include=$(ORACLE_HOME)/rdbms/public
+
+ora.o: ora.c
+	$(CC) $(CFLAGS) -Wno-missing-field-initializers -Wno-implicit-int -Wno-unused-variable -c ora.c -o ora.o
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(TARGET) *.o ora.c ora.lis
+
+.PHONY: all clean
