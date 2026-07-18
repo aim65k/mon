@@ -21,6 +21,7 @@ HISTORY_FILE_NAME="dbd_history_dbd.txt"
 
 OWNER_NAME=dbd_oracle.dbd_oracle
 BIN_DIR=/dbdpkg/mon/bin
+CFG_DIR=/dbdpkg/mon/cfg
 
 readYn()
 {
@@ -72,10 +73,21 @@ copy_env()
     ENV_NM=env_$1.sh
     TMP_FILE=tmp.txt
     [[ ! -d ${BIN_DIR}/old ]] && sudo mkdir ${BIN_DIR}/old
-    [[ -f ${BIN_DIR}/${ENV_NM} ]] && sudo mv ${BIN_DIR}/${ENV_NM} ${BIN_DIR}/old/${ENV_NM}_${TODAY_TIME}
-    grep -v query_file ${ENV_NM} > tmp.txt
-    sudo mv ${TMP_FILE} /dbdpkg/mon/bin/${ENV_NM}
-    sudo chown ${OWNER_NAME} ${BIN_DIR}/${ENV_NM}
+    if [[ -f ${BIN_DIR}/${ENV_NM} ]]; then
+         sudo mv ${BIN_DIR}/${ENV_NM} ${BIN_DIR}/old/${ENV_NM}_${TODAY_TIME}
+        grep -v query_file ${ENV_NM} > tmp.txt
+        sudo mv ${TMP_FILE} /dbdpkg/mon/bin/${ENV_NM}
+        sudo chown ${OWNER_NAME} ${BIN_DIR}/${ENV_NM}
+    fi
+
+    if [[ $ENV_NM == "admin" ]]; then
+        [[ ! -d ${CFG_DIR}/old ]] && sudo mkdir ${CFG_DIR}/old
+        if [[ -f ${CFG_DIR}/${DBD_ADMIN_FILE} ]]; then
+            sudo mv ${CFG_DIR}/${DBD_ADMIN_FILE} ${CFG_DIR}/old/${DBD_ADMIN_FILE}_${TODAY_TIME}
+            sudo mv ${DBD_ADMIN_FILE} /dbdpkg/mon/bin/${DBD_ADMIN_FILE}
+            sudo chown ${OWNER_NAME} ${CFG_DIR}/${DBD_ADMIN_FILE}
+        fi
+    fi
 }
 
 all_copy_env()
