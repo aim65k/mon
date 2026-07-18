@@ -124,7 +124,7 @@ CROSS JOIN
 WHERE s.STATUS = 'ACTIVE'
   AND s.TYPE   = 'USER'
   AND s.SID   <> agent.AGENT_SID
-  -- 모니터링(수집) 계정 제외: 실시간/스캐터에서 ITSTONE 노이즈 방지
+  ## 모니터링(수집) 계정 제외: 실시간/스캐터에서 ITSTONE 노이즈 방지
   AND s.USERNAME <> 'ITSTONE'
 ;
 
@@ -156,12 +156,12 @@ SELECT
     s.CON_ID,
     s.SID,
     s.SERIAL#                                                   AS SERIAL_NO,
-    NVL(vc.NAME, 'N/A')                                        AS CONTAINER_NAME,
+    NVL(SYS_CONTEXT('USERENV', 'DB_NAME'), 'NON-CDB')          AS CONTAINER_NAME,
     NVL(s.SERVICE_NAME, 'N/A')                                 AS SERVICE_NAME,
     s.SQL_ID,
     s.SQL_CHILD_NUMBER,
     NVL(st.EXEC_COUNT_CUM, 0)                                  AS EXEC_COUNT_CUM,
-    NVL(st.CPU_USED_CUM,   0)                                  AS CPU_USED_CUM,
+    ROUND(NVL(tm.VALUE, 0) / 10000, 2)                         AS CPU_USED_CUM,
     CASE
         WHEN s.STATE = 'WAITING'
         THEN ROUND(s.WAIT_TIME_MICRO / 1000, 0)
@@ -175,21 +175,21 @@ SELECT
     TO_CHAR(s.LOGON_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LOGON_TIME,
     SUBSTR(s.CLIENT_INFO, 1, 64)                               AS CLIENT_INFO
 FROM V$SESSION s
-LEFT JOIN V$CONTAINERS vc
-       ON vc.CON_ID = s.CON_ID
 LEFT JOIN
 (
     SELECT
         ss.SID,
-        MAX(CASE WHEN sn.NAME = 'execute count'            THEN ss.VALUE END) AS EXEC_COUNT_CUM,
-        MAX(CASE WHEN sn.NAME = 'CPU used by this session' THEN ss.VALUE END) AS CPU_USED_CUM
+        MAX(ss.VALUE) AS EXEC_COUNT_CUM
     FROM V$SESSTAT ss
     JOIN V$STATNAME sn
       ON sn.STATISTIC# = ss.STATISTIC#
-    WHERE sn.NAME IN ('execute count', 'CPU used by this session')
+    WHERE sn.NAME = 'execute count'
     GROUP BY ss.SID
 ) st
        ON st.SID = s.SID
+LEFT JOIN V$SESS_TIME_MODEL tm
+       ON tm.SID = s.SID
+      AND tm.STAT_NAME = 'DB CPU'
 CROSS JOIN
 (
     SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) AS AGENT_SID
@@ -198,7 +198,7 @@ CROSS JOIN
 WHERE s.STATUS = 'ACTIVE'
   AND s.TYPE   = 'USER'
   AND s.SID   <> agent.AGENT_SID
-  -- 모니터링(수집) 계정 제외: 실시간/스캐터에서 ITSTONE 노이즈 방지
+  ## 모니터링(수집) 계정 제외: 실시간/스캐터에서 ITSTONE 노이즈 방지
   AND s.USERNAME <> 'ITSTONE'
 ;
 
@@ -362,7 +362,7 @@ SELECT
     S.SERIAL#        AS SERIAL_NO,
     S.USERNAME,
     S.STATUS,
-    S.SQL_ID,
+    NVL(S.SQL_ID, S.PREV_SQL_ID) AS SQL_ID,
     S.MODULE,
     S.MACHINE,
     S.PROGRAM,
@@ -500,7 +500,7 @@ SELECT
     I.INSTANCE_NUMBER     AS INSTANCE_NUMBER,
     I.INSTANCE_NAME       AS INSTANCE_NAME,
     I.HOST_NAME           AS HOST_NAME,
-    I.VERSION             AS VERSION,
+    I.VERSION_FULL        AS VERSION,
     TO_CHAR(I.STARTUP_TIME, 'YYYY-MM-DD HH24:MI:SS') AS STARTUP_TIME,
     I.STATUS              AS INSTANCE_STATUS,
     I.PARALLEL            AS PARALLEL,
@@ -589,7 +589,6 @@ SELECT
     SUM(R.GETMISSES)   AS GETMISSES_CUM
 FROM V$ROWCACHE R
 WHERE R.GETS > 0
-AND R.TYPE = 'PARENT'
 ;
 
 #################################
@@ -741,7 +740,7 @@ LEFT JOIN
                       'CONTROL FILE', 'REDO LOG', 'FOREIGN ARCHIVED LOG')
                 THEN NUMBER_OF_FILES       ELSE 0
             END)                                                             AS OTHER_FILE_COUNT
-    FROM V$FLASH_RECOVERY_AREA_USAGE
+    FROM V$RECOVERY_AREA_USAGE
     GROUP BY NVL(CON_ID, 0)
 ) FAU
   ON FAU.CON_ID = RFD.CON_ID
@@ -781,61 +780,64 @@ SELECT
     0                                                                   AS CON_ID,
     I.INSTANCE_NAME,
     I.HOST_NAME,
-    I.VERSION,
+    I.VERSION_FULL,
     I.STATUS,
     I.DATABASE_STATUS,
     I.LOGINS,
     TO_CHAR(I.STARTUP_TIME, 'YYYY-MM-DD HH24:MI:SS') AS STARTUP_TIME,
     ROUND((SYSDATE - I.STARTUP_TIME) * 24, 1)                         AS UPTIME_HOURS,
-    P.PROC_CURRENT,
-    P.PROC_MAX,
+    R.PROC_CURRENT,
+    R.PROC_MAX,
     NULL                                                                AS PROC_MAX_UTILIZATION,
     NULL                                                                AS PROC_MAX_UTILIZATION_DAILY,
-    P.PROC_MAX - P.PROC_CURRENT                                        AS PROC_HEADROOM,
-    ROUND(P.PROC_CURRENT * 100 / NULLIF(P.PROC_MAX, 0), 2)            AS PROC_USAGE_PCT,
+    R.PROC_MAX - R.PROC_CURRENT                                        AS PROC_HEADROOM,
+    ROUND(R.PROC_CURRENT * 100 / NULLIF(R.PROC_MAX, 0), 2)            AS PROC_USAGE_PCT,
     A.ACTIVE_SESSION,
     A.LONG_IDLE_SESSION,
-    S.SESS_CURRENT,
-    S.SESS_MAX,
+    R.SESS_CURRENT,
+    R.SESS_MAX,
     NULL                                                                AS SESS_MAX_UTILIZATION,
     NULL                                                                AS SESS_MAX_UTILIZATION_DAILY,
-    S.SESS_MAX - S.SESS_CURRENT                                        AS SESS_HEADROOM,
-    ROUND(S.SESS_CURRENT * 100 / NULLIF(S.SESS_MAX, 0), 2)            AS SESS_USAGE_PCT
+    R.SESS_MAX - R.SESS_CURRENT                                        AS SESS_HEADROOM,
+    ROUND(R.SESS_CURRENT * 100 / NULLIF(R.SESS_MAX, 0), 2)            AS SESS_USAGE_PCT
 FROM V$INSTANCE I
 CROSS JOIN
 (
     SELECT
-        (SELECT COUNT(*) FROM V$PROCESS)                               AS PROC_CURRENT,
-        (SELECT TO_NUMBER(VALUE) FROM V$PARAMETER
-          WHERE LOWER(NAME) = 'processes' AND ROWNUM = 1)             AS PROC_MAX
-    FROM DUAL
-) P
+        MAX(CASE WHEN RESOURCE_NAME = 'processes'
+                 THEN CURRENT_UTILIZATION END)                         AS PROC_CURRENT,
+        MAX(CASE WHEN RESOURCE_NAME = 'processes'
+                 THEN TO_NUMBER(TRIM(LIMIT_VALUE)) END)                AS PROC_MAX,
+        MAX(CASE WHEN RESOURCE_NAME = 'sessions'
+                 THEN CURRENT_UTILIZATION END)                         AS SESS_CURRENT,
+        MAX(CASE WHEN RESOURCE_NAME = 'sessions'
+                 THEN TO_NUMBER(TRIM(LIMIT_VALUE)) END)                AS SESS_MAX
+    FROM V$RESOURCE_LIMIT
+    WHERE RESOURCE_NAME IN ('processes', 'sessions')
+      AND NVL(CON_ID, 0) = 0
+) R
 CROSS JOIN
 (
     SELECT
-        COUNT(CASE WHEN STATUS = 'ACTIVE'   AND TYPE = 'USER' THEN 1 END)           AS ACTIVE_SESSION,
+        COUNT(CASE WHEN STATUS = 'ACTIVE'   AND TYPE = 'USER'
+                    AND SID <> TO_NUMBER(SYS_CONTEXT('USERENV', 'SID'))
+                   THEN 1 END)                                         AS ACTIVE_SESSION,
         COUNT(CASE WHEN STATUS = 'INACTIVE' AND TYPE = 'USER'
-                    AND LAST_CALL_ET >= 1800                   THEN 1 END)           AS LONG_IDLE_SESSION
+                    AND LAST_CALL_ET >= 1800
+                    AND SID <> TO_NUMBER(SYS_CONTEXT('USERENV', 'SID'))
+                   THEN 1 END)                                         AS LONG_IDLE_SESSION
     FROM V$SESSION
 ) A
-CROSS JOIN
-(
-    SELECT
-        (SELECT COUNT(*) FROM V$SESSION)                               AS SESS_CURRENT,
-        (SELECT TO_NUMBER(VALUE) FROM V$PARAMETER
-          WHERE LOWER(NAME) = 'sessions' AND ROWNUM = 1)              AS SESS_MAX
-    FROM DUAL
-) S
 ;
 
 #################################
 ## 11-1. S_INVALID_OBJECT - 1일
-## ---------------------------------------------------------------
-## 소스 : DBA_OBJECTS (STATUS='INVALID')
+##
+## 소스 : DBA_INVALID_OBJECTS
 ##
 ## ★수집주기 1일인 이유
 ##   Invalid Object 는 DDL/패치 뒤에 생기는 '상태' 지표라 초단위 추적이 무의미하다.
-##   반면 DBA_OBJECTS 는 오브젝트 수만큼 비싼 딕셔너리 풀스캔이다(수만~수십만 행).
+##   반면 DBA_INVALID_OBJECTS 는 딕셔너리 조회가 필요하므로 1일 1회로 충분하다.
 ##   정기점검(주/월) 용도엔 1일 1회로 충분하다. S_PARAMETER_SNAPSHOT 과 동일 정책.
 ##
 ## ★상세행이 아니라 "요약 1행" 을 적재한다 (S_RECOVER_FILE 과 같은 이유)
@@ -857,7 +859,7 @@ CROSS JOIN
 ##          집계 컬럼은 COUNT/SUM/MIN/MAX 등 기존 블록이 이미 쓰는 형태로만 작성할 것.
 ##          목록(LISTAGG)이 꼭 필요하면 에이전트(C++) 측 파서 보완이 선행되어야 한다.
 ##   [대안] 개수만 담는다. 어떤 오브젝트인지는 발생 시 DBA 가 직접 조회하면 된다:
-##          SELECT owner, object_name, object_type FROM dba_objects WHERE status='INVALID';
+##          SELECT owner, object_name, object_type FROM dba_invalid_objects;
 #################################
 [S_INVALID_OBJECT, Y, 86400]
 INSERT INTO S_INVALID_OBJECT
@@ -870,16 +872,10 @@ INSERT INTO S_INVALID_OBJECT
 SELECT
     0                                                     AS CON_ID,
     COUNT(*)                                              AS INVALID_CNT,
-    COUNT(CASE WHEN O.OWNER NOT IN
-               ('SYS','SYSTEM','XDB','MDSYS','CTXSYS','ORDSYS','ORDDATA','ORDPLUGINS',
-                'WMSYS','OLAPSYS','EXFSYS','SYSMAN','LBACSYS','DVSYS','DVF','AUDSYS',
-                'GSMADMIN_INTERNAL','OJVMSYS','DBSNMP','APPQOSSYS','OUTLN','ORACLE_OCM',
-                'SI_INFORMTN_SCHEMA','DBSFWUSER','REMOTE_SCHEDULER_AGENT','GGSYS',
-                'ANONYMOUS','PUBLIC')
+    COUNT(CASE WHEN O.ORACLE_MAINTAINED = 'N'
                THEN 1 END)                                AS APP_INVALID_CNT,
     COUNT(DISTINCT O.OWNER)                               AS OWNER_CNT
-FROM DBA_OBJECTS O
-WHERE O.STATUS = 'INVALID'
+FROM DBA_INVALID_OBJECTS O
 ;
 
 #################################
@@ -1063,7 +1059,7 @@ WHERE L.NAMESPACE IN
 
 #################################
 ## 15. S_LOCK_SESSION - 5초
-## ---------------------------------------------------------------
+##
 ## HOLDER_SQL_ID      : 홀더가 "현재" 실행 중인 SQL (V$SESSION.SQL_ID)
 ##                      → 락을 잡은 문장이 아닐 수 있음.
 ##                        홀더가 idle 이면 NULL, PL/SQL 안이면 익명블록(phv=0, 원문 미수집)
@@ -1118,7 +1114,7 @@ SELECT
     W.EVENT                   AS WAITER_EVENT,
     W.WAIT_CLASS              AS WAITER_WAIT_CLASS,
     W.SECONDS_IN_WAIT         AS WAITER_SECONDS_IN_WAIT,
-    H.SID                     AS HOLDER_SID,
+    W.BLOCKING_SESSION        AS HOLDER_SID,
     H.SERIAL#                 AS HOLDER_SERIAL_NO,
     H.USERNAME                AS HOLDER_USERNAME,
     H.STATUS                  AS HOLDER_STATUS,
@@ -1154,12 +1150,11 @@ FROM V$SESSION W
 LEFT JOIN V$SESSION H
        ON H.SID    = W.BLOCKING_SESSION
       AND H.CON_ID = W.CON_ID
-LEFT JOIN V$LOCK WL
+JOIN V$LOCK WL
        ON WL.SID     = W.SID
       AND WL.REQUEST > 0
-      AND WL.TYPE    IN ('TM', 'TX')
 LEFT JOIN V$LOCK HL
-       ON HL.SID   = H.SID
+       ON HL.SID   = W.BLOCKING_SESSION
       AND HL.TYPE  = WL.TYPE
       AND HL.ID1   = WL.ID1
       AND HL.ID2   = WL.ID2
@@ -1185,6 +1180,9 @@ INSERT INTO S_LONGOPS
 	totalwork,
 	units,
 	start_time,
+	sql_exec_id,
+	sql_plan_line_id,
+	operation_context,
 	elapsed_seconds,
 	time_remaining,
 	percent_complete,
@@ -1195,13 +1193,16 @@ SELECT
     L.SID,
     L.SERIAL#                                                               AS SERIAL_NO,
     NVL(S.USERNAME, NVL(L.USERNAME, 'BACKGROUND'))                         AS USERNAME,
-    NVL(S.SQL_ID, L.SQL_ID)                                                AS SQL_ID,
+    NVL(L.SQL_ID, S.SQL_ID)                                                AS SQL_ID,
     L.OPNAME,
-    L.TARGET,
+    NVL(L.TARGET, NVL(L.TARGET_DESC, ' '))                                 AS TARGET,
     L.SOFAR,
     L.TOTALWORK,
     L.UNITS,
-    TO_CHAR(L.START_TIME, 'YYYY-MM-DD HH24:MI:SS') AS START_TIME,
+    TO_CHAR(NVL(L.START_TIME, DATE '1970-01-01'), 'YYYY-MM-DD HH24:MI:SS') AS START_TIME,
+    NVL(L.SQL_EXEC_ID, -1)                                                  AS SQL_EXEC_ID,
+    NVL(L.SQL_PLAN_LINE_ID, -1)                                             AS SQL_PLAN_LINE_ID,
+    NVL(L.CONTEXT, -1)                                                      AS OPERATION_CONTEXT,
     L.ELAPSED_SECONDS,
     L.TIME_REMAINING,
     ROUND(L.SOFAR * 100 / NULLIF(L.TOTALWORK, 0), 2)                      AS PERCENT_COMPLETE,
@@ -1232,14 +1233,17 @@ INSERT INTO S_OS_CPU_STAT
 )
 SELECT
     0                                                                       AS CON_ID,
-    NVL(OSSTAT.BUSY_TIME,   0)                                             AS BUSY_TIME_CUM,
-    NVL(OSSTAT.IDLE_TIME,   0)                                             AS IDLE_TIME_CUM,
-    NVL(OSSTAT.USER_TIME,   0)                                             AS USER_TIME_CUM,
-    NVL(OSSTAT.SYS_TIME,    0)                                             AS SYS_TIME_CUM,
-    NVL(OSSTAT.NICE_TIME,   0)                                             AS NICE_TIME_CUM,
-    NVL(OSSTAT.IOWAIT_TIME, 0)                                             AS IOWAIT_TIME_CUM,
-    NVL(OSSTAT.BUSY_TIME, 0) + NVL(OSSTAT.IDLE_TIME, 0)                   AS TOTAL_TIME_CUM,
-    NVL(OSSTAT.CPU_COUNT, 1)                                               AS CPU_COUNT
+    OSSTAT.BUSY_TIME                                                        AS BUSY_TIME_CUM,
+    OSSTAT.IDLE_TIME                                                        AS IDLE_TIME_CUM,
+    OSSTAT.USER_TIME                                                        AS USER_TIME_CUM,
+    OSSTAT.SYS_TIME                                                         AS SYS_TIME_CUM,
+    OSSTAT.NICE_TIME                                                        AS NICE_TIME_CUM,
+    OSSTAT.IOWAIT_TIME                                                      AS IOWAIT_TIME_CUM,
+    CASE
+        WHEN OSSTAT.BUSY_TIME IS NOT NULL AND OSSTAT.IDLE_TIME IS NOT NULL
+        THEN OSSTAT.BUSY_TIME + OSSTAT.IDLE_TIME
+    END                                                                     AS TOTAL_TIME_CUM,
+    OSSTAT.CPU_COUNT                                                        AS CPU_COUNT
 FROM
 (
     SELECT
@@ -1266,6 +1270,13 @@ FROM
 
 #################################
 ## 18. S_OS_MEMORY_STAT - 30초
+##
+## PHYSICAL/FREE/AVAILABLE/SWAP 항목은 순간값이므로 CPU처럼 LAG 델타를 계산하지 않는다.
+## AVAILABLE_MEMORY_BYTES가 있으면 OS가 계산한 실제 사용 가능 메모리로 우선 사용한다.
+## 없으면 FREE_MEMORY_BYTES + INACTIVE_MEMORY_BYTES를 사용하며, 둘 다 없으면 NULL이다.
+## V$OSSTAT 메모리/Swap 항목은 OS별로 일부만 제공될 수 있다.
+## Swap 총량과 Free가 모두 유효할 때만 사용량과 경보를 계산한다.
+## 미지원 또는 불완전한 Swap 통계는 정상(NORMAL)이 아니라 측정 불가(NULL/N)이다.
 #################################
 [S_OS_MEMORY_STAT, Y, 30]
 INSERT INTO S_OS_MEMORY_STAT
@@ -1299,27 +1310,41 @@ SELECT
     OSSTAT.SWAP_TOTAL_BYTES                                                 AS SWAP_TOTAL_BYTES,
     OSSTAT.SWAP_FREE_BYTES                                                  AS SWAP_FREE_BYTES,
     CASE
-        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NULL THEN NULL
-        ELSE OSSTAT.SWAP_TOTAL_BYTES - NVL(OSSTAT.SWAP_FREE_BYTES, 0)
+        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NULL OR OSSTAT.SWAP_FREE_BYTES IS NULL THEN NULL
+        WHEN OSSTAT.SWAP_TOTAL_BYTES < 0
+          OR OSSTAT.SWAP_FREE_BYTES < 0
+          OR OSSTAT.SWAP_FREE_BYTES > OSSTAT.SWAP_TOTAL_BYTES THEN NULL
+        ELSE OSSTAT.SWAP_TOTAL_BYTES - OSSTAT.SWAP_FREE_BYTES
     END                                                                     AS SWAP_USED_BYTES,
     CASE
-        WHEN NVL(OSSTAT.SWAP_TOTAL_BYTES, 0) = 0 THEN NULL
+        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NULL OR OSSTAT.SWAP_FREE_BYTES IS NULL THEN NULL
+        WHEN OSSTAT.SWAP_TOTAL_BYTES <= 0
+          OR OSSTAT.SWAP_FREE_BYTES < 0
+          OR OSSTAT.SWAP_FREE_BYTES > OSSTAT.SWAP_TOTAL_BYTES THEN NULL
         ELSE ROUND(
-                 (OSSTAT.SWAP_TOTAL_BYTES - NVL(OSSTAT.SWAP_FREE_BYTES, 0)) * 100
+                 (OSSTAT.SWAP_TOTAL_BYTES - OSSTAT.SWAP_FREE_BYTES) * 100
                  / OSSTAT.SWAP_TOTAL_BYTES,
                  2)
     END                                                                     AS SWAP_USAGE_PCT,
     CASE
-        WHEN NVL(OSSTAT.SWAP_TOTAL_BYTES, 0) = 0 THEN 'NORMAL'
-        WHEN (OSSTAT.SWAP_TOTAL_BYTES - NVL(OSSTAT.SWAP_FREE_BYTES, 0))
+        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NULL OR OSSTAT.SWAP_FREE_BYTES IS NULL THEN NULL
+        WHEN OSSTAT.SWAP_TOTAL_BYTES < 0
+          OR OSSTAT.SWAP_FREE_BYTES < 0
+          OR OSSTAT.SWAP_FREE_BYTES > OSSTAT.SWAP_TOTAL_BYTES THEN NULL
+        WHEN OSSTAT.SWAP_TOTAL_BYTES = 0 THEN 'NORMAL'
+        WHEN (OSSTAT.SWAP_TOTAL_BYTES - OSSTAT.SWAP_FREE_BYTES)
              / OSSTAT.SWAP_TOTAL_BYTES >= 0.30 THEN 'CRITICAL'
-        WHEN (OSSTAT.SWAP_TOTAL_BYTES - NVL(OSSTAT.SWAP_FREE_BYTES, 0))
+        WHEN (OSSTAT.SWAP_TOTAL_BYTES - OSSTAT.SWAP_FREE_BYTES)
              / OSSTAT.SWAP_TOTAL_BYTES >= 0.10 THEN 'WARNING'
         ELSE 'NORMAL'
     END                                                                     AS SWAP_ALERT_LEVEL,
     CASE
-        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NULL THEN 'N'
-        ELSE 'Y'
+        WHEN OSSTAT.SWAP_TOTAL_BYTES IS NOT NULL
+         AND OSSTAT.SWAP_FREE_BYTES IS NOT NULL
+         AND OSSTAT.SWAP_TOTAL_BYTES >= 0
+         AND OSSTAT.SWAP_FREE_BYTES >= 0
+         AND OSSTAT.SWAP_FREE_BYTES <= OSSTAT.SWAP_TOTAL_BYTES THEN 'Y'
+        ELSE 'N'
     END                                                                     AS SWAP_DATA_AVAILABLE
 FROM
 (
@@ -1355,6 +1380,10 @@ FROM
 
 #################################
 ## 19. S_PARAMETER_SNAPSHOT - 1일
+##
+## DB 설정 변경감지 목적이므로 수집 세션 값인 V$PARAMETER를 사용하지 않는다.
+## 인스턴스 전체에 적용된 초기화 파라미터 값은 V$SYSTEM_PARAMETER에서 수집한다.
+## ALTER SESSION으로 바뀐 NLS 등 수집계정 세션값은 스냅샷 및 변경감지 대상이 아니다.
 #################################
 [S_PARAMETER_SNAPSHOT, Y, 86400]
 INSERT INTO S_PARAMETER_SNAPSHOT
@@ -1403,45 +1432,47 @@ SELECT
         6, 'Big Integer',
         'Unknown'
     )              AS TYPE_DESC
-FROM V$PARAMETER
+FROM V$SYSTEM_PARAMETER
 ;
 
 #################################
-## 20. S_PDB_STATUS - 30초
+## 20. S_PDB_STATUS - 30초 [수집 보류]
+## Oracle MVP는 Non-CDB 단일 인스턴스 기준이므로 PDB 상태를 수집하지 않는다.
+## 재개할 때 아래 블록의 각 줄 맨 앞 ## 를 제거하고 설정값 N을 Y로 변경한다.
 #################################
-[S_PDB_STATUS, Y, 30]
-INSERT INTO S_PDB_STATUS
-(
-	con_id,
-	pdb_name,
-	open_mode,
-	restricted,
-	open_time,
-	total_size_mb,
-	block_size,
-	recovery_status,
-	snapshot_parent_con_id,
-	application_root,
-	application_pdb,
-	is_proxy_pdb,
-	con_uid,
-	guid
-)
-SELECT
-    CON_ID,
-    NAME                               AS PDB_NAME,
-    OPEN_MODE,
-    RESTRICTED,
-    TO_CHAR(OPEN_TIME, 'YYYY-MM-DD HH24:MI:SS') AS OPEN_TIME,
-    ROUND(TOTAL_SIZE / 1048576)        AS TOTAL_SIZE_MB,
-    BLOCK_SIZE,
-    RECOVERY_STATUS,
-    SNAPSHOT_PARENT_CON_ID,
-    APPLICATION_ROOT,
-    APPLICATION_PDB,
-    PROXY_PDB                          AS IS_PROXY_PDB,
-    CON_UID,
-    RAWTOHEX(GUID)                     AS GUID
-FROM V$PDBS
-WHERE CON_ID != 2
-;
+## [S_PDB_STATUS, N, 30]
+## INSERT INTO S_PDB_STATUS
+## (
+## 	con_id,
+## 	pdb_name,
+## 	open_mode,
+## 	restricted,
+## 	open_time,
+## 	total_size_mb,
+## 	block_size,
+## 	recovery_status,
+## 	snapshot_parent_con_id,
+## 	application_root,
+## 	application_pdb,
+## 	is_proxy_pdb,
+## 	con_uid,
+## 	guid
+## )
+## SELECT
+##     CON_ID,
+##     NAME                               AS PDB_NAME,
+##     OPEN_MODE,
+##     RESTRICTED,
+##     TO_CHAR(OPEN_TIME, 'YYYY-MM-DD HH24:MI:SS') AS OPEN_TIME,
+##     ROUND(TOTAL_SIZE / 1048576)        AS TOTAL_SIZE_MB,
+##     BLOCK_SIZE,
+##     RECOVERY_STATUS,
+##     SNAPSHOT_PARENT_CON_ID,
+##     APPLICATION_ROOT,
+##     APPLICATION_PDB,
+##     PROXY_PDB                          AS IS_PROXY_PDB,
+##     CON_UID,
+##     RAWTOHEX(GUID)                     AS GUID
+## FROM V$PDBS
+## WHERE CON_ID != 2
+## ;
