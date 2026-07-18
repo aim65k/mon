@@ -9,7 +9,7 @@ fi
 ARG_NM=$1
 
 if [[ $ARG_NM != "oracle" && $ARG_NM != "maria" 
-   && $ARG_NM != "mssql" && $ARG_NM != "pg" ]]; then
+   && $ARG_NM != "mssql" && $ARG_NM != "pg" && $ARG_NM != "admin" ]]; then
     echo "Usage $PGNM target_name, exit 2"
     exit
 fi
@@ -46,6 +46,7 @@ all_compile()
         compile mssql
         compile maria
         compile oracle
+        compile admin
     else
         compile $ARG_NM
     fi
@@ -67,6 +68,7 @@ copy_binary()
 
 copy_env()
 {
+    [[ $1 == "admin" ]] && return
     ENV_NM=env_$1.sh
     TMP_FILE=tmp.txt
     [[ ! -d ${BIN_DIR}/old ]] && sudo mkdir ${BIN_DIR}/old
@@ -83,6 +85,7 @@ all_copy_env()
         copy_env mssql
         copy_env maria
         copy_env oracle
+        copy_env admin
     else
         copy_env $ARG_NM
     fi
@@ -95,6 +98,7 @@ all_copy_binary()
         copy_binary mssql
         copy_binary maria
         copy_binary oracle
+        copy_binary admin
     else
         copy_binary $ARG_NM
     fi
@@ -111,7 +115,7 @@ make_tags
 
 delete_core_file
 
-hide_query
+[[ $ARG_NM != "admin" ]] && hide_query
 
 all_compile
 

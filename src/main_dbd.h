@@ -29,6 +29,8 @@ extern int giTermFd;
 #define     DBD_LOGDIR               "DBD_LOGDIR"
 #define     DBD_CFGDIR               "DBD_CFGDIR"
 #define     DBD_DATDIR               "DBD_DATDIR"
+#define     DBD_BINDIR               "DBD_BINDIR"
+#define     DBD_ADMIN_FILE           "DBD_ADMIN_FILE"
 
 #define     INS_PG_HOST_IP           "INS_PG_HOST_IP"
 #define     INS_PG_PORT              "INS_PG_PORT"
@@ -51,6 +53,7 @@ typedef char my_bool;
 
 typedef struct _qry_t {
     char    caTitle[128];                       // 제목
+    char    cRunYn;                             // 기동중, 멈춤(y/n)
     int     iCycle;                             // 시간(초) 주기 0:특정시간, 0<: 반복주기(초)
     struct {
         int     iH;

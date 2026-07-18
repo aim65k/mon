@@ -24,6 +24,21 @@ daPgDie(qry_t *spQry, PGresult *res, const char *msg)
     exit(1);
 }
 
+static void 
+daPgLive(qry_t *spQry, PGresult *res, const char *msg)
+{
+    if (res) {
+        LOGE("[%s] POSTGRES [%s] status=%s err=[%s]\n", spQry->caTitle, msg, PQresStatus(PQresultStatus(res)), PQresultErrorMessage(res));
+        PQclear(res);
+    }
+    else {
+        if (spQry->spPgConn) {
+         LOGE("[%s] POSTGRES CONN [%s] status=%d err=[%s]\n", spQry->caTitle, msg, PQstatus(spQry->spPgConn), PQerrorMessage(spQry->spPgConn));
+        }
+    }    
+    return;
+}
+
 int 
 daPgOpen(qry_t *spQry)
 {
@@ -130,14 +145,17 @@ daPgCopyEnd(qry_t *spQry)
 
     while ((res = PQgetResult(spQry->spPgConn)) != NULL) {
         if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-            daPgDie(spQry, res, "COPY result failed");
-            PQclear(res);
+            daPgLive(spQry, res, "COPY result failed");
+
+            spQry->cRunYn = DEF_STOP;
+            LOGE("[%s] 해당 query는 위 오류로 더이상 수행하지 않습니다. \n", spQry->caTitle);
             pthread_mutex_lock(&mutex);
             while (ready_to_work == 0) {
                 // 이 함수가 실행되면 이 스레드는 멈추고 CPU 점유율을 0%로 만듭니다.
                 pthread_cond_wait(&cond, &mutex); 
             }
             pthread_mutex_unlock(&mutex);
+            LOGE("[%s] 복귀..?? \n", spQry->caTitle);
             return -1;
         }
         PQclear(res);

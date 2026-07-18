@@ -865,6 +865,14 @@ daUsage(char *cpMsg, char **argv)
 }
 
 
+void    
+sigIntFunc(int iSigNo)
+{       
+    LOGD("종료 signal 수신으로 프로그램을 종료합니다. %d \n", iSigNo);
+    sleep(2);
+    exit(0);
+}
+
 
 static int
 daGetOpt(int argc, char **argv) 
@@ -873,7 +881,8 @@ daGetOpt(int argc, char **argv)
     char    *cpRet;
 
     TRY { 
-        strcpy(scaPgNm, argv[0]);
+        signal(SIGINT, sigIntFunc);
+        strcpy(scaPgNm, basename(argv[0]));
         while((iOpt=getopt(argc, argv, "q:T:n:CDsrhv")) != -1) {
             switch(iOpt) {
                 case    'q':    strcpy(scaArgQryFileNm, optarg);    break;  // query file
@@ -1024,7 +1033,6 @@ daLogStart(char **argv)
 
     TRY { 
         if (scStdoutYn == DEF_NO) {
-
             daGetLogFileNm(caLogFileNm, sizeof(caLogFileNm));
             //dcLoggerInit(caLogFileNm);
             dcLogStart(argv[0], caLogFileNm, 5, 1024, 1024*10);
@@ -1046,7 +1054,7 @@ main(int argc, char **argv)
 
         CALL(daChkDupProcess(argv));
 
-        CALL(dcDaemonize(scStdoutYn));
+        //CALL(dcDaemonize(scStdoutYn));
 
         CALL(daLogStart(argv));
 
@@ -1055,7 +1063,6 @@ main(int argc, char **argv)
         CALL(daGetQry());               // parshing from query statement
 
         daPrintQryInfo();
-
 
         CALL(daWriteMyPid());
 

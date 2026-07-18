@@ -89,6 +89,29 @@ daGetCycleString(qry_t *spQry)
 }
 
 static void 
+*daThdMon(void *arg)
+{
+    int     iThdIdx = *(int *)arg;
+    struct  timespec    tsLstTs;
+    (void)iThdIdx;
+
+    CLOCK_GETTIME(&tsLstTs); 
+    while (1) {
+        // to sleep, for next cycle
+        dcNextCycleSleep(&tsLstTs, 60, 0);
+
+        LOGI("---------------------- status --------------------------------\n");
+        for(int i=0; i<sQryInfo.iLstIdx; i++) {
+            qry_t *spQry = &sQryInfo.saQry[i];
+            LOGI("(%02d) [%s] %-30s %-4s 주기:%3d \n", i, daPrintRunMethod(spQry->cRunMethod)
+                , spQry->caTitle, spQry->cRunYn == DEF_YES?"run":"stop", spQry->iCycle);
+        }
+        LOGI("--------------------------------------------------------------\n");
+        if(iThdIdx == 100)  return(NULL);
+    }
+}
+
+static void 
 *daThdMain(void *arg)
 {
     int     iThdIdx = *(int *)arg;
@@ -107,6 +130,7 @@ static void
     }
     pthread_setname_np(pthread_self(), caThdNm);
 
+    spQry->cRunYn = DEF_YES;
     
     CLOCK_GETTIME(&tsLstTs); 
     LOGD("%02d run thread :%-20s, cycle:%s\n", iThdIdx, spQry->caTitle, daGetCycleString(spQry));
@@ -194,6 +218,11 @@ daRunWorker()
         }
         snprintf(caThdNm, sizeof(caThdNm), "dbd_main");
         pthread_setname_np(pthread_self(), caThdNm);
+
+        ipThdIdx = malloc(sizeof(int)); ASSERT(ipThdIdx);
+        *ipThdIdx = iF0;
+        CALL(pthread_create(&spThd->ptThdId, NULL, daThdMon, ipThdIdx));
+        sThdInfo.iUseThdCnt++;
 
         /* 모든 Thread 종료 대기 */
         for (iF0=0; iF0<sThdInfo.iUseThdCnt; iF0++) {

@@ -14,6 +14,8 @@ src/dbd_pg
 src/dbd_maria
 src/dbd_mssql
 src/dbd_oracle
+src/dbd_admin
+src/env_test.sh
 
 # query header
 *.inc

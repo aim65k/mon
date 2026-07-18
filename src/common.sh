@@ -6,6 +6,8 @@ if (( ARG_NUM > 1 )); then
 fi
 ARG_NM=$1
 
+[[ $ARG_NM == "admin" ]] && return
+
 . env_$ARG_NM.sh
 
 HEADER_FILE_NM=$PRJHOME/mon/src/query.inc

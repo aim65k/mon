@@ -173,11 +173,11 @@ daMallocMrgRow(qry_t *spQry)
 void
 daDBEnv(void)
 {
-    cpHost   = ENV_REQUIRED("PG_HOST_IP");
-    cpPort   = ENV_REQUIRED("PG_PORT");
-    cpUser   = ENV_REQUIRED("PG_USER");
-    cpPass   = ENV_REQUIRED("PG_PASS");
-    cpDbName = ENV_REQUIRED("PG_DATABASE_NAME");
+    cpHost   = ENV_REQUIRED(PG_HOST_IP);
+    cpPort   = ENV_REQUIRED(PG_PORT);
+    cpUser   = ENV_REQUIRED(PG_USER);
+    cpPass   = ENV_REQUIRED(PG_PASS);
+    cpDbName = ENV_REQUIRED(PG_DATABASE_NAME);
 
     return;
 }
