@@ -8,6 +8,11 @@ if (( ARG_NUM != 1 )); then
 fi
 ARG_NM=$1
 
+TGT_BIN_DIR=/dbdpkg/mon/bin
+TGT_CFG_DIR=/dbdpkg/mon/cfg
+BIN_DIR=$DBD_BINDIR
+CFG_DIR=$DBD_CFGDIR
+
 if [[ $ARG_NM != "oracle" && $ARG_NM != "maria" 
    && $ARG_NM != "mssql" && $ARG_NM != "pg" && $ARG_NM != "admin" ]]; then
     echo "Usage $PGNM target_name, exit 2"
@@ -15,13 +20,15 @@ if [[ $ARG_NM != "oracle" && $ARG_NM != "maria"
 fi
 . common.sh $ARG_NM
 
+if [[ $ARG_NM == "admin" && "x"${DBD_ADMIN_FILE} == "x" ]]; then
+    echo "not define \${DBD_ADMIN_FILE}, exit"; exit
+fi
+
 
 TODAY_TIME=$(date "+%Y%m%d_%H%M%S")
 HISTORY_FILE_NAME="dbd_history_dbd.txt"
 
 OWNER_NAME=dbd_oracle.dbd_oracle
-BIN_DIR=/dbdpkg/mon/bin
-CFG_DIR=/dbdpkg/mon/cfg
 
 readYn()
 {
@@ -61,32 +68,32 @@ delete_core_file()
 copy_binary()
 {
     BIN_NM=dbd_$1
-    [[ ! -d ${BIN_DIR}/old ]] && sudo mkdir ${BIN_DIR}/old
-    [[ -f ${BIN_DIR}/${BIN_NM} ]] && sudo mv ${BIN_DIR}/${BIN_NM} ${BIN_DIR}/old/${BIN_NM}_${TODAY_TIME}
-    sudo cp ${BIN_NM} /dbdpkg/mon/bin
-    sudo chown ${OWNER_NAME} ${BIN_DIR}/${BIN_NM}
+    [[ ! -d ${TGT_BIN_DIR}/old ]] && sudo mkdir ${TGT_BIN_DIR}/old
+    [[ -f ${BIN_DIR}/${BIN_NM} ]] && sudo mv ${TGT_BIN_DIR}/${BIN_NM} ${TGT_BIN_DIR}/old/${BIN_NM}_${TODAY_TIME}
+    sudo cp ${BIN_NM} ${TGT_BIN_DIR}
+    sudo chown ${OWNER_NAME} ${TGT_BIN_DIR}/${BIN_NM}
 }
 
 copy_env()
 {
-    [[ $1 == "admin" ]] && return
     ENV_NM=env_$1.sh
-    TMP_FILE=tmp.txt
-    [[ ! -d ${BIN_DIR}/old ]] && sudo mkdir ${BIN_DIR}/old
-    if [[ -f ${BIN_DIR}/${ENV_NM} ]]; then
-         sudo mv ${BIN_DIR}/${ENV_NM} ${BIN_DIR}/old/${ENV_NM}_${TODAY_TIME}
-        grep -v query_file ${ENV_NM} > tmp.txt
-        sudo mv ${TMP_FILE} /dbdpkg/mon/bin/${ENV_NM}
-        sudo chown ${OWNER_NAME} /dbdpkg/mon/bin/${ENV_NM}
+    if [[ $ARG_NM == "admin" ]]; then
+        [[ ! -d ${TGT_CFG_DIR}/old ]] && sudo mkdir ${TGT_CFG_DIR}/old
+        if [[ -f ${CFG_DIR}/${DBD_ADMIN_FILE} ]]; then
+            sudo mv ${TGT_CFG_DIR}/${DBD_ADMIN_FILE} ${TGT_CFG_DIR}/old/${DBD_ADMIN_FILE}_${TODAY_TIME}
+            sudo cp ${CFG_DIR}/${DBD_ADMIN_FILE} ${TGT_CFG_DIR}/${DBD_ADMIN_FILE}
+            sudo chown ${OWNER_NAME} ${TGT_CFG_DIR}/${DBD_ADMIN_FILE}
+        fi
+        return;
     fi
 
-    if [[ $ENV_NM == "admin" ]]; then
-        [[ ! -d ${CFG_DIR}/old ]] && sudo mkdir ${CFG_DIR}/old
-        if [[ -f ${CFG_DIR}/${DBD_ADMIN_FILE} ]]; then
-            sudo mv ${CFG_DIR}/${DBD_ADMIN_FILE} ${CFG_DIR}/old/${DBD_ADMIN_FILE}_${TODAY_TIME}
-            sudo cp ${CFG_DIR}/${DBD_ADMIN_FILE} /dbdpkg/mon/cfg/${DBD_ADMIN_FILE}
-            sudo chown ${OWNER_NAME} /dbdpkg/mon/cfg/${DBD_ADMIN_FILE}
-        fi
+    TMP_FILE=tmp.txt
+    [[ ! -d ${TGT_BIN_DIR}/old ]] && sudo mkdir ${TGT_BIN_DIR}/old
+    if [[ -f ${BIN_DIR}/${ENV_NM} ]]; then
+        sudo mv ${TGT_BIN_DIR}/${ENV_NM} ${TGT_BIN_DIR}/old/${ENV_NM}_${TODAY_TIME}
+        grep -v query_file ${ENV_NM} > ${TMP_FILE}
+        sudo mv ${TMP_FILE} ${TGT_BIN_DIR}/${ENV_NM}
+        sudo chown ${OWNER_NAME} ${TGT_BIN_DIR}/${ENV_NM}
     fi
 }
 
