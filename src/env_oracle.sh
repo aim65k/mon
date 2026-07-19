@@ -12,7 +12,7 @@ export DBD_LOGDIR=$PRJHOME/mon/log
 export DBD_DATDIR=$PRJHOME/mon/dat
 export DBD_CFGDIR=$PRJHOME/mon/cfg
 export DBD_BINDIR=$PRJHOME/mon/bin
-export DBD_ADMIN_FILE=process_list.cfg
+export DBD_ADMIN_FILE=oracle_process_list.cfg
 
 
 # oracle

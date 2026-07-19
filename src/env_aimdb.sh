@@ -5,7 +5,7 @@ export DBD_LOGDIR=$PRJHOME/mon/log
 export DBD_DATDIR=$PRJHOME/mon/dat
 export DBD_CFGDIR=$PRJHOME/mon/cfg
 export DBD_BINDIR=$PRJHOME/mon/bin
-export DBD_ADMIN_FILE=process_list.cfg
+export DBD_ADMIN_FILE=aimdb_process_list.cfg
 
 # insert DB-postgreSQL
 export INS_PG_HOST_IP=192.168.48.50
