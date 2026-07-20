@@ -148,10 +148,15 @@ daGetOciOutBufSize(text *cpColNm, ub2 dtype, ub2 dsize)
         case SQLT_AFC:
         case SQLT_AVC:
         case SQLT_VCS:
-        case SQLT_CLOB: // 내가 옮긴거임
                 if (dsize > 0 && dsize < 32767)
                     return (ub4)dsize + 4;
                 return 8192;
+
+        case SQLT_CLOB: // 내가 옮긴거임
+                // CLOB은 dsize(Locator 크기=4or8)를 사용하면 버퍼가 부족해집니다.
+                // Fetch 시 SQLT_CHR로 바인딩하여 텍스트를 받아올 최대 버퍼 크기를 지정합니다.
+                return 65536; // 64KB (검증 데이터 스펙에 맞춰 조절)
+
 
         case SQLT_BLOB:
         case SQLT_BFILE:
