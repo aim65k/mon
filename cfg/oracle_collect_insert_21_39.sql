@@ -74,7 +74,7 @@ CROSS JOIN
 
 #################################
 ## 21-1. S_RECOVER_FILE - 10분
-## ---------------------------------------------------------------
+## ===============================================================
 ## 소스 : V$RECOVER_FILE — 미디어 복구가 필요한 데이터파일.
 ##        정상 운영 DB 는 항상 0행이어야 한다. 1건이라도 있으면 즉시 확인 대상
 ##        (해당 테이블스페이스 접근 불가 상태일 수 있음).
@@ -140,7 +140,8 @@ SELECT
     NVL(MAX(CASE WHEN GS.NAME = 'user rollbacks' THEN GS.VALUE END), 0)   AS USER_ROLLBACKS_CUM,
     null  redo_mb_per_sec,
     TO_CHAR(SYSTIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')   created_date                                                                    
-FROM V$SYSSTAT GS   /* [P0-2 RAC] 단일 인스턴스 기준 GV$→V$ 변경(수집 범위 일관) */
+## [P0-2 RAC] 단일 인스턴스 기준 GV$→V$ 변경(수집 범위 일관)
+FROM V$SYSSTAT GS
 WHERE GS.NAME IN
 (
     'redo size',
@@ -221,7 +222,8 @@ INSERT INTO S_SEGMENT_STAT
 	itl_waits_cum
 )
 SELECT
-    CON_ID, OWNER, OBJECT_NAME, SUBOBJECT_NAME, TABLESPACE_NAME, OBJECT_TYPE,
+    ## [2026-07-19] 내부 집계는 실제 CON_ID를 유지하고 최종 적재값만 0으로 통일한다.
+    0 AS CON_ID, OWNER, OBJECT_NAME, SUBOBJECT_NAME, TABLESPACE_NAME, OBJECT_TYPE,
     PHYSICAL_READS_CUM, LOGICAL_READS_CUM, PHYSICAL_WRITES_CUM,
     PHYS_READ_REQ_CUM, PHYS_WRITE_REQ_CUM,
     ROW_LOCK_WAITS_CUM, BUFFER_BUSY_WAITS_CUM, ITL_WAITS_CUM
@@ -303,9 +305,10 @@ SELECT
     N.STREAMS_POOL_MB                                         AS STREAMS_POOL_MB,
     N.FREE_MEMORY_MB                                          AS FREE_SGA_AVAILABLE_MB,
     NVL(S.SHARED_POOL_FREE_MB,    0)                          AS SHARED_POOL_FREE_MB,
-    NVL(S.BUFFER_CACHE_FREE_MB,   0)                          AS BUFFER_CACHE_FREE_MB,
-    NVL(S.LIBRARY_CACHE_MEM_MB,   0)                          AS LIBRARY_CACHE_MEM_MB,
-    NVL(S.SQL_AREA_MEM_MB,        0)                          AS SQL_AREA_MEM_MB,
+## Oracle 19c 공식 V$ 지표로 안정적으로 산출할 수 없고 화면 SQL에서도 미사용하므로 NULL 적재
+    CAST(NULL AS NUMBER)                                      AS BUFFER_CACHE_FREE_MB,
+    CAST(NULL AS NUMBER)                                      AS LIBRARY_CACHE_MEM_MB,
+    CAST(NULL AS NUMBER)                                      AS SQL_AREA_MEM_MB,
     NVL(L.RELOADS,                0)                          AS RELOADS_CUM,
     NVL(L.INVALIDATIONS,          0)                          AS INVALIDATIONS_CUM
 FROM
@@ -322,13 +325,11 @@ FROM
 LEFT JOIN
 (
     SELECT
-        ROUND(SUM(CASE WHEN POOL = 'shared pool' AND NAME = 'free memory'   THEN BYTES END) / 1048576) AS SHARED_POOL_FREE_MB,
-        ROUND(SUM(CASE WHEN                           NAME = 'free buffers'  THEN BYTES END) / 1048576) AS BUFFER_CACHE_FREE_MB,
-        ROUND(SUM(CASE WHEN POOL = 'shared pool' AND NAME = 'library cache' THEN BYTES END) / 1048576) AS LIBRARY_CACHE_MEM_MB,
-        ROUND(SUM(CASE WHEN POOL = 'shared pool' AND NAME = 'sql area'      THEN BYTES END) / 1048576) AS SQL_AREA_MEM_MB
+        ROUND(SUM(CASE WHEN POOL = 'shared pool' AND NAME = 'free memory' THEN BYTES END) / 1048576) AS SHARED_POOL_FREE_MB
     FROM V$SGASTAT
 ) S
-  ON 1=1   /* [P0-2 RAC] 단일 인스턴스: 인스턴스 1개라 INST_ID 조인 불필요 → ON 1=1 */
+## [P0-2 RAC] 단일 인스턴스: 인스턴스 1개라 INST_ID 조인 불필요 → ON 1=1
+  ON 1=1
 
 LEFT JOIN
 (
@@ -446,7 +447,7 @@ SELECT
     NVL(SUM(SUM_CNT), 0)                                          AS TOTAL_SQL_CNT,
     NVL(SUM(CASE WHEN SUM_CNT >= 2 THEN SUM_CNT END), 0)         AS LITERAL_SQL_CNT,
     NVL(SUM(CASE WHEN SUM_CNT >= 2 THEN 1       END), 0)         AS LITERAL_GROUP_CNT,
-    NVL(MAX(SUM_CNT), 0)                                          AS MAX_DUPLICATE_IN_GROUP
+    NVL(MAX(CASE WHEN SUM_CNT >= 2 THEN SUM_CNT END), 0)          AS MAX_DUPLICATE_IN_GROUP
 FROM
 (
     SELECT
@@ -498,7 +499,8 @@ INSERT INTO ITSTONE.S_SQL_STAT
 	last_active_time
 )
 SELECT
-    S.CON_ID,
+    ## [2026-07-19] Oracle MVP는 Non-CDB 단일 컨테이너 기준이므로 적재 CON_ID를 0으로 통일한다.
+    0 AS CON_ID,
     S.SQL_ID,
     S.PLAN_HASH_VALUE,
     S.EXECUTIONS                  AS EXECUTIONS_CUM,
@@ -706,7 +708,8 @@ INSERT INTO ITSTONE.S_TOP_WAIT_SESSION
 	blocking_status
 )
 SELECT
-    CON_ID,
+    ## [2026-07-19] 내부 순위 계산은 실제 CON_ID를 유지하고 최종 적재값만 0으로 통일한다.
+    0 AS CON_ID,
     WAIT_CLASS,
     WAIT_RANK,
     SID,
@@ -779,9 +782,10 @@ FROM
         WHERE S.TYPE    = 'USER'
           AND S.STATUS  = 'ACTIVE'
           AND S.SID    != A.MY_SID
+          ## 모니터링 수집 계정은 고객 Top Wait 순위에서 제외한다.
+          AND S.USERNAME <> 'ITSTONE'
           AND NOT (S.STATE = 'WAITING' AND S.WAIT_CLASS = 'Idle')
     ) AS1
-
 ) RANKED_SESS
 WHERE WAIT_RANK <= 5
 ;

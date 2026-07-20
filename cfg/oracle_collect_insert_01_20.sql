@@ -60,7 +60,8 @@ INSERT INTO ITSTONE.S_ACTIVE_SESSION
 	used_urec
 )
 SELECT
-    s.CON_ID,
+    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+    0 AS CON_ID,
     s.SID,
     s.SERIAL#                                                           AS SERIAL_NO,
     s.FIXED_TABLE_SEQUENCE,
@@ -153,7 +154,8 @@ INSERT INTO S_ACTIVE_SESSION_DETAIL
 	client_info
 )
 SELECT
-    s.CON_ID,
+    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+    0 AS CON_ID,
     s.SID,
     s.SERIAL#                                                   AS SERIAL_NO,
     NVL(SYS_CONTEXT('USERENV', 'DB_NAME'), 'NON-CDB')          AS CONTAINER_NAME,
@@ -204,7 +206,7 @@ WHERE s.STATUS = 'ACTIVE'
 
 #################################
 ## 3. S_ALERT_LOG
-## MERGE 문 제거
+## MERGE 로 이동
 #################################
 
 
@@ -353,7 +355,8 @@ INSERT INTO S_BLOCKING_TX
 	waiter_count
 )
 SELECT
-    NVL(T.CON_ID, 0) AS CON_ID,
+    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+    0 AS CON_ID,
     T.XIDUSN,
     T.XIDSLOT,
     T.XIDSQN,
@@ -633,7 +636,8 @@ INSERT INTO S_FRA_USAGE
 	other_file_count
 )
 SELECT
-    RFD.CON_ID                                                              AS CON_ID,
+    ## [2026-07-19] 내부 FRA 조인은 실제 CON_ID를 유지하고 최종 적재값만 0으로 통일한다.
+    0                                                                       AS CON_ID,
     RFD.FRA_DEST_NAME,
     RFD.SPACE_LIMIT_BYTES,
     RFD.SPACE_USED_BYTES,
@@ -801,20 +805,22 @@ SELECT
     R.SESS_MAX - R.SESS_CURRENT                                        AS SESS_HEADROOM,
     ROUND(R.SESS_CURRENT * 100 / NULLIF(R.SESS_MAX, 0), 2)            AS SESS_USAGE_PCT
 FROM V$INSTANCE I
+## 2026-07-20 PDB 서비스 직접 접속에서는 V$RESOURCE_LIMIT의 processes, sessions 행이 없을 수 있다.
+## Non-CDB와 PDB 직접 접속에서 공통으로 조회되는 V$PROCESS, V$SESSION, V$PARAMETER를 사용한다.
 CROSS JOIN
 (
     SELECT
-        MAX(CASE WHEN RESOURCE_NAME = 'processes'
-                 THEN CURRENT_UTILIZATION END)                         AS PROC_CURRENT,
-        MAX(CASE WHEN RESOURCE_NAME = 'processes'
-                 THEN TO_NUMBER(TRIM(LIMIT_VALUE)) END)                AS PROC_MAX,
-        MAX(CASE WHEN RESOURCE_NAME = 'sessions'
-                 THEN CURRENT_UTILIZATION END)                         AS SESS_CURRENT,
-        MAX(CASE WHEN RESOURCE_NAME = 'sessions'
-                 THEN TO_NUMBER(TRIM(LIMIT_VALUE)) END)                AS SESS_MAX
-    FROM V$RESOURCE_LIMIT
-    WHERE RESOURCE_NAME IN ('processes', 'sessions')
-      AND NVL(CON_ID, 0) = 0
+        (SELECT COUNT(*)
+           FROM V$PROCESS)                                             AS PROC_CURRENT,
+        (SELECT TO_NUMBER(VALUE)
+           FROM V$PARAMETER
+          WHERE NAME = 'processes')                                    AS PROC_MAX,
+        (SELECT COUNT(*)
+           FROM V$SESSION)                                             AS SESS_CURRENT,
+        (SELECT TO_NUMBER(VALUE)
+           FROM V$PARAMETER
+          WHERE NAME = 'sessions')                                     AS SESS_MAX
+    FROM DUAL
 ) R
 CROSS JOIN
 (
@@ -1041,7 +1047,8 @@ INSERT INTO S_LIBCACHE_STAT
 	invalidations_cum
 )
 SELECT
-    L.CON_ID       AS CON_ID,
+    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+    0              AS CON_ID,
     L.NAMESPACE    AS NAMESPACE,
     L.PINS         AS PINS_CUM,
     L.RELOADS      AS RELOADS_CUM,
@@ -1105,7 +1112,8 @@ INSERT INTO S_LOCK_SESSION
 	p3text
 )
 SELECT
-    W.CON_ID                  AS CON_ID,
+    ## [2026-07-19] 내부 홀더 조인은 실제 CON_ID를 유지하고 최종 적재값만 0으로 통일한다.
+    0                         AS CON_ID,
     W.SID                     AS WAITER_SID,
     W.SERIAL#                 AS WAITER_SERIAL_NO,
     W.USERNAME                AS WAITER_USERNAME,
@@ -1407,7 +1415,8 @@ INSERT INTO S_PARAMETER_SNAPSHOT
 	type_desc
 )
 SELECT
-    CON_ID,
+    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+    0 AS CON_ID,
     NAME,
     VALUE,
     DISPLAY_VALUE,

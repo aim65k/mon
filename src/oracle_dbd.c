@@ -35,6 +35,21 @@ daOracleDie(OCIError *errhp, const char *msg)
 }
 
 static void 
+daOracleLive(OCIError *errhp, const char *msg)
+{
+    text errbuf[1024];
+    sb4 errcode = 0;
+
+    if (errhp) {
+        OCIErrorGet(errhp, 1, NULL, &errcode, errbuf, sizeof(errbuf), OCI_HTYPE_ERROR);
+        LOGE("OCI ERROR [%s] code=%d msg=%s\n", msg, errcode, errbuf);
+    } else {
+        LOGE("OCI ERROR [%s]\n", msg);
+    }
+    return;
+}
+
+static void 
 daOralceInit(qry_t *spQry)
 {
     memset(spQry->sDb.ora_defhp, 0x00, sizeof(spQry->sDb.ora_defhp));
@@ -342,7 +357,9 @@ daDBSelect(qry_t *spQry)
             break;
 
         if (rc != OCI_SUCCESS && rc != OCI_SUCCESS_WITH_INFO) {
-            daOracleDie(errhp, "OCIStmtFetch2 failed");
+            daOracleLive(errhp, "OCIStmtFetch2 failed");
+            extern int daStopQry(qry_t *spQry);
+            daStopQry(spQry); 
             FREE(rowbuf);
             return -1;
         }

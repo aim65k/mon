@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include "common_db.h"
 #include "log_db.h"
-//#include "main_dbd.h"
 
 #define MAX_COLS            256
 #define LINE_BUF_INIT       8192

@@ -6,7 +6,8 @@ MERGE INTO itstone.s_alert_log t
 USING
 (
     SELECT
-        SRC.CON_ID,                                                                       
+        ## [2026-07-19] 메시지 해시 계산은 실제 CON_ID를 유지하고 최종 적재값만 0으로 통일한다.
+        0 AS CON_ID,
         TO_CHAR(SRC.ORIGINATING_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.FF3') AS ORIGINATING_TIMESTAMP,
         SRC.MESSAGE_TEXT,                                                                 
         TO_NUMBER(REGEXP_SUBSTR(SRC.ORA_ERROR_CODE, '[0-9]+'))      AS ORA_ERROR_CODE,   
@@ -55,7 +56,8 @@ USING
                 REGEXP_SUBSTR(A.MESSAGE_TEXT, 'ORA-[0-9]+')                 AS ORA_ERROR_CODE
             FROM V$DIAG_ALERT_EXT A
             WHERE A.COMPONENT_ID          = 'rdbms'
-              AND A.ORIGINATING_TIMESTAMP > SYSTIMESTAMP - INTERVAL '2' MINUTE
+              ## Agent 중단 후 누락 복구를 위해 최근 24시간을 재조회하며 ON 키로 중복 제거한다.
+              AND A.ORIGINATING_TIMESTAMP > SYSTIMESTAMP - INTERVAL '1' DAY
               AND (
                     A.MESSAGE_TEXT  LIKE '%ORA-%'
                  OR A.MESSAGE_LEVEL IN (1, 2)
@@ -121,11 +123,10 @@ USING
             RESETLOGS_TIME,
             LAG(FIRST_TIME) OVER
             (
-                PARTITION BY THREAD#
+                PARTITION BY THREAD#, RESETLOGS_CHANGE#
                 ORDER BY FIRST_TIME, SEQUENCE#
             )                                         AS PREV_FIRST_TIME
         FROM V$LOG_HISTORY
-        WHERE FIRST_TIME >= SYSDATE - 1
     ) HIST
     CROSS JOIN
     (
@@ -203,7 +204,8 @@ MERGE INTO itstone.s_sql_plan t
 USING
 (
 	SELECT
-	    P.CON_ID,
+	    ## [2026-07-19] Oracle MVP는 Non-CDB 단일 컨테이너 기준이므로 적재 CON_ID를 0으로 통일한다.
+	    0 AS CON_ID,
 	    P.SQL_ID,
 	    P.CHILD_NUMBER,
 	    P.PLAN_HASH_VALUE,
@@ -226,7 +228,9 @@ USING
 	    P.LAST_ELAPSED_TIME AS A_TIME_US,
 	    P.LAST_CR_BUFFER_GETS + P.LAST_CU_BUFFER_GETS AS BUFFERS,
 	    P.LAST_DISK_READS AS READS,
-	    P.LAST_TEMPSEG_SIZE AS TEMP_BYTES
+	    P.LAST_TEMPSEG_SIZE AS TEMP_BYTES,
+	    ## Oracle/PG 서버 시각 동기화 전제이며 약 1초 이내 시차를 허용한다.
+	    TO_CHAR(SYSTIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.FF6') AS COLLECT_TIME
 	FROM V$SQL_PLAN_STATISTICS_ALL P
 	JOIN
 	(
@@ -271,8 +275,8 @@ USING
 	          AND  V.PLAN_HASH_VALUE > 0
 	          AND  V.PARSING_SCHEMA_NAME NOT IN ('SYS', 'SYSTEM', 'ITSTONE', 'DBSNMP')
 	        UNION ALL
-	        ##-- [P1 확장성] 최근 5분 활동 SQL: 무제한이면 대형 시스템서 수천 SQL×평균15 plan node 를 3분마다 조회/UPDATE(WAL·dead tuple 폭증).
-	        ##--   최근성(LAST_ACTIVE_TIME) 순 상한 200 캡. ①elapsed20 ②bufgets10 ③active 유지로 주요 SQL 커버. 200 밖 마이너 SQL plan 은 온디맨드 보완(별도 과제).
+	        ## [P1 확장성] 최근 5분 활동 SQL: 무제한이면 대형 시스템서 수천 SQL×평균15 plan node 를 3분마다 조회/UPDATE(WAL·dead tuple 폭증).
+	        ##   최근성(LAST_ACTIVE_TIME) 순 상한 200(건) 캡. ①elapsed20 ②bufgets10 ③active 유지로 주요 SQL 커버. 200(건) 밖 마이너 SQL plan 은 온디맨드 보완(별도 과제).
 	        SELECT CON_ID, SQL_ID, PLAN_HASH_VALUE
 	        FROM (
 	            SELECT CON_ID, SQL_ID, PLAN_HASH_VALUE
@@ -298,8 +302,11 @@ ON
     AND t.plan_hash_value = s.plan_hash_value
     AND t.id              = s.id
 )
+## C++ Agent는 아래 SET 목록을 해석하지 않고, WHEN MATCHED 존재 여부만으로
+## INSERT 비키 컬럼 전체를 DO UPDATE한다. collect_time도 INSERT 비키 컬럼으로
+## 전달하여 Oracle SYSTIMESTAMP 값으로 EXCLUDED 갱신한다.
 WHEN MATCHED THEN UPDATE SET
-    collect_time = statement_timestamp(),
+    collect_time = s.collect_time,
     starts     = s.starts,
     a_rows     = s.a_rows,
     a_time_us  = s.a_time_us,
@@ -331,7 +338,8 @@ WHEN NOT MATCHED THEN INSERT
     a_time_us,
     buffers,
     reads,
-    temp_bytes
+    temp_bytes,
+    collect_time
 )
 VALUES
 (
@@ -358,7 +366,8 @@ VALUES
     s.a_time_us,
     s.buffers,
     s.reads,
-    s.temp_bytes
+    s.temp_bytes,
+    s.collect_time
 )
 ;
 #########################################################
@@ -369,7 +378,8 @@ MERGE INTO itstone.s_undo_stat t
 USING
 (
 		SELECT
-		    CON_ID,
+		    ## [2026-07-19] PDB 직접 접속도 Non-CDB 논리 모델로 처리하여 적재 CON_ID를 0으로 통일한다.
+		    0 AS CON_ID,
 		    TO_CHAR(BEGIN_TIME, 'YYYY-MM-DD HH24:MI:SS')  AS BEGIN_TIME,
 		    TO_CHAR(END_TIME,   'YYYY-MM-DD HH24:MI:SS')  AS END_TIME,
 		    NVL(UNDOTSN, 0)       AS UNDOTSN,
@@ -475,7 +485,8 @@ MERGE INTO itstone.s_sql_bind t
 USING
 (
 	SELECT
-	    B.CON_ID,
+	    ## [2026-07-19] Oracle MVP는 Non-CDB 단일 컨테이너 기준이므로 적재 CON_ID를 0으로 통일한다.
+	    0 AS CON_ID,
 	    B.SQL_ID,
 	    B.CHILD_NUMBER,
 	    B.NAME         AS BIND_NAME,
@@ -484,10 +495,10 @@ USING
 	    B.VALUE_STRING,
 	    TO_CHAR(B.LAST_CAPTURED, 'YYYY-MM-DD HH24:MI:SS') AS LAST_CAPTURED
 	FROM V$SQL_BIND_CAPTURE B
-	##-- Bind 값이 없는 행 제외 + 최근 30분 캡처분만
+	## Bind 값이 없는 행 제외 + 최근 30분 캡처분만
 	WHERE B.VALUE_STRING IS NOT NULL
 	  AND B.LAST_CAPTURED >= SYSDATE - (30 / 1440)
-	  ##-- [FIX] 모니터링/시스템 세션 SQL 제외(타 V$SQL 컬렉터와 정책 통일 + 바인드값 민감정보 방어)
+	  ## [FIX] 모니터링/시스템 세션 SQL 제외(타 V$SQL 컬렉터와 정책 통일 + 바인드값 민감정보 방어)
 	  AND EXISTS (
 	      SELECT 1 FROM V$SQL Q
 	      WHERE Q.SQL_ID = B.SQL_ID
@@ -531,9 +542,9 @@ VALUES
 ## s_sql_text
 #########################################################
 [s_sql_text, Y, 60]
-## [P0 확장성] 대형 공유풀(커서 5만~10만) 부하 대책 2가지:
-##  (1) 아래 WHERE 에 LAST_ACTIVE_TIME 최근 30분 필터 → 전체 재스캔·fulltext 전량 전송을 '활성집합'으로 축소.
-##  (2) 아래 WHEN MATCHED 에 '조건부 keep-alive' → 매 주기 기존행 전량 UPDATE(WAL·dead tuple·autovacuum) 폭주 제거.
+## [P0 확장성] 대형 공유풀(커서 5만~10만)은 LAST_ACTIVE_TIME 최근 30분 필터로
+## 전체 재스캔·fulltext 전량 전송을 활성집합으로 축소한다.
+## 현재 C++ Agent는 SET 목록을 해석하지 않고 INSERT 비키 컬럼 전체를 매 주기 UPDATE한다.
 ##  주기는 60초 유지: SQL Detail 팝업(Scatter 점 클릭)이 s_sql_text 원문을 즉시 조회하므로, 주기를 늘리면
 ##  신규 SQL 원문이 그만큼(최대 주기) 팝업에서 공백이 됨. 신규 SQL 은 WHEN NOT MATCHED INSERT 로 매 주기 즉시 적재.
 ##  ※ 출시 전 실 V$SQL 5만행 조건에서 이 섹션이 주기(60초) 내 완료되는지 부하테스트 필요.
@@ -541,7 +552,8 @@ MERGE INTO itstone.s_sql_text t
 USING
 (
 		SELECT
-		    V.CON_ID,
+		    ## [2026-07-19] Oracle MVP는 Non-CDB 단일 컨테이너 기준이므로 적재 CON_ID를 0으로 통일한다.
+		    0 AS CON_ID,
 		    V.SQL_ID,
 		    V.CHILD_NUMBER,
 		    V.PLAN_HASH_VALUE,
@@ -550,10 +562,13 @@ USING
 		    V.PARSING_SCHEMA_NAME,
 		    V.MODULE,
 		    V.SQL_FULLTEXT     AS SQL_TEXT,
-        TO_CHAR(V.LAST_ACTIVE_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LAST_SEEN
+        TO_CHAR(V.LAST_ACTIVE_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LAST_SEEN,
+        ## Oracle/PG 서버 시각 동기화 전제이며 약 1초 이내 시차를 허용한다.
+        TO_CHAR(SYSTIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.FF6') AS PG_LAST_COLLECT_TIME
 		FROM V$SQL V
 		WHERE V.SQL_ID              IS NOT NULL
-		  AND V.PLAN_HASH_VALUE      > 0
+		  ## [2026-07-20] 실행계획이 없는 PL/SQL(COMMAND_TYPE=47)도 SQL 분석 팝업에서 원문을 조회할 수 있게 수집한다.
+		  AND (V.PLAN_HASH_VALUE > 0 OR V.COMMAND_TYPE = 47)
 		  AND V.EXECUTIONS           > 0
 		  AND V.ELAPSED_TIME         > 0
 		  AND V.LAST_ACTIVE_TIME    >= SYSDATE - (30/1440)
@@ -572,7 +587,7 @@ WHEN MATCHED THEN UPDATE SET
     parsing_schema_name      = s.parsing_schema_name,
     "module"                   = s.module,
     last_seen                = s.last_seen,
-    pg_last_collect_time     = statement_timestamp()
+    pg_last_collect_time     = s.pg_last_collect_time
 WHEN NOT MATCHED THEN INSERT
 (
     con_id,
@@ -584,7 +599,8 @@ WHEN NOT MATCHED THEN INSERT
     parsing_schema_name,
     "module",
     sql_text,
-    last_seen
+    last_seen,
+    pg_last_collect_time
 )
 VALUES
 (
@@ -597,6 +613,7 @@ VALUES
     s.parsing_schema_name,
     s.module,
     s.sql_text,
-    s.last_seen
+    s.last_seen,
+    s.pg_last_collect_time
 )
 ;
