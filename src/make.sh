@@ -69,7 +69,7 @@ copy_binary()
 {
     BIN_NM=dbd_$1
     [[ ! -d ${TGT_BIN_DIR}/old ]] && sudo mkdir ${TGT_BIN_DIR}/old
-    [[ -f ${BIN_DIR}/${BIN_NM} ]] && sudo mv ${TGT_BIN_DIR}/${BIN_NM} ${TGT_BIN_DIR}/old/${BIN_NM}_${TODAY_TIME}
+    [[ -f ${TGT_BIN_DIR}/${BIN_NM} ]] && sudo mv ${TGT_BIN_DIR}/${BIN_NM} ${TGT_BIN_DIR}/old/${BIN_NM}_${TODAY_TIME}
     sudo cp ${BIN_NM} ${TGT_BIN_DIR}
     sudo chown ${OWNER_NAME} ${TGT_BIN_DIR}/${BIN_NM}
 }
