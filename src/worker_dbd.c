@@ -213,6 +213,7 @@ static void
 
     daUpdInit(spQry);       // insert collect
     daUpdPrepare(spQry);    // update prepare 
+    daUpdWoker(spQry);  
 
     if (spQry->cRunMethod != RUN_METHOD_SELECT) {
         if (daDBPrepare(spQry)) return NULL;
