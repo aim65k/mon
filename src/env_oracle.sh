@@ -24,6 +24,5 @@ query_file=()
 query_file+=("oracle_collect_insert_01_20.sql")
 query_file+=("oracle_collect_insert_21_39.sql")
 query_file+=("oracle_collect_merge_01_6.sql")
-query_file+=("oracle_collect_time.sql")
 export query_file
 #eof

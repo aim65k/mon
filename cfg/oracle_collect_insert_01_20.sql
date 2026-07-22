@@ -1074,8 +1074,6 @@ WHERE L.NAMESPACE IN
 ##                      → 홀더가 idle(INACTIVE) 일 때 대개 이것이 락을 잡은 그 문장.
 ##                        실환경 락 사고의 대표 케이스(UPDATE 후 커밋 없이 idle)를 커버.
 ##                      → 화면(Blocking Tree) "직전 SQL_ID" 컬럼
-## ※ 본 컬럼 추가 시 PG DDL 선행 필요:
-##    PG_ALTER-s_lock_session_add_holder_prev_sql_id.sql
 #################################
 [S_LOCK_SESSION, Y, 5]
 INSERT INTO S_LOCK_SESSION

@@ -51,6 +51,12 @@ typedef char my_bool;
 #define     RUN_METHOD_MERGE            'M'
 #define     RUN_METHOD_SELECT           'S'
 
+typedef struct {
+    int     iErrCd;
+    char    caPart[128];
+    char    caErrMsg[1024];
+} db_error_t;
+
 typedef struct _qry_t {
     char    caTitle[128];                       // 제목
     char    cRunYn;                             // 기동중, 멈춤(y/n)
@@ -67,6 +73,8 @@ typedef struct _qry_t {
     char    *cpSelQry;                          // select문장 
     char    *cpMrgQry;                          // merge의 upsert 문장
 
+    char    *cpRsltUpdQry;
+    char    *cpIRsltUpdStmtName;
     char    caMrgStmtName[256];
     char    cMrgWhenMatchYn;
 
@@ -91,7 +99,12 @@ typedef struct _qry_t {
     PGconn  *spPgConn;
 
     db_ctx_t    sDb;
+
+    int         iElapSec;                       // 소요시간(단위: micro sec)
+    char        cRslt;                          // Y, N
+    db_error_t  sErr;
 } qry_t;
+
 
 typedef struct _qry_info_t {
     int     iLstIdx;                        // 마지막 query index

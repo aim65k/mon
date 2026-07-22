@@ -9,7 +9,7 @@ char gcaPgPass[128];
 extern char gcDebugMode;
 
 static void 
-daPgDie(qry_t *spQry, PGresult *res, const char *msg)
+daPgDie(qry_t *spQry, PGresult *res, char cExitYn, const char *msg)
 {
     if (res) {
         LOGE("[%s] POSTGRES [%s] status=%s err=[%s]\n", spQry->caTitle, msg, PQresStatus(PQresultStatus(res)), PQresultErrorMessage(res));
@@ -21,21 +21,7 @@ daPgDie(qry_t *spQry, PGresult *res, const char *msg)
         }
     }    
 
-    exit(1);
-}
-
-static void 
-daPgLive(qry_t *spQry, PGresult *res, const char *msg)
-{
-    if (res) {
-        LOGE("[%s] POSTGRES [%s] status=%s err=[%s]\n", spQry->caTitle, msg, PQresStatus(PQresultStatus(res)), PQresultErrorMessage(res));
-        PQclear(res);
-    }
-    else {
-        if (spQry->spPgConn) {
-         LOGE("[%s] POSTGRES CONN [%s] status=%d err=[%s]\n", spQry->caTitle, msg, PQstatus(spQry->spPgConn), PQerrorMessage(spQry->spPgConn));
-        }
-    }    
+    if(cExitYn == EXIT_YES) exit(1);
     return;
 }
 
@@ -50,7 +36,7 @@ daPgOpen(qry_t *spQry)
     spQry->spPgConn = PQconnectdb(caPgConnInfo);
     if (PQstatus(spQry->spPgConn) != CONNECTION_OK) {
         LOGE("connect fail, connect info:[%s]\n", caPgConnInfo);
-        daPgDie(spQry, NULL, "PostgreSQL connect failed");
+        daPgDie(spQry, NULL, EXIT_YES, "PostgreSQL connect failed");
     }
     return(0);
 
@@ -64,14 +50,14 @@ daPgCopyBegin(qry_t *spQry)
     res = PQexec(spQry->spPgConn, spQry->cpCopyCmd);
 
     if (res == NULL) {
-        daPgDie(spQry, NULL, "PQexec COPY returned NULL");
+        daPgDie(spQry, NULL, EXIT_YES, "PQexec COPY returned NULL");
         return -1;
     }
 
     if (PQresultStatus(res) != PGRES_COPY_IN) {
         LOGE("[%s] COPY FROM STDIN failed cmd:[%s]\n",
              spQry->caTitle, spQry->cpCopyCmd);
-        daPgDie(spQry, res, "COPY FROM STDIN start failed");
+        daPgDie(spQry, res, EXIT_YES, "COPY FROM STDIN start failed");
         return -1;
     }
 
@@ -89,8 +75,7 @@ daPgCopyPutRow(qry_t *spQry, const char *row)
     ret = PQputCopyData(spQry->spPgConn, row, (int)strlen(row));
 
     if (ret != 1) {
-        LOGE("[%s] PQputCopyData failed row:[%s]\n",
-             spQry->caTitle, row);
+        LOGE("[%s] PQputCopyData failed row:[%s]\n", spQry->caTitle, row);
         return -1;
     }
 
@@ -108,7 +93,7 @@ daPgExecFunc(qry_t *spQry)
     
         // 쿼리 실행 상태 체크
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-            daPgDie(spQry, res, "함수 호출 실패, exit");
+            daPgDie(spQry, res, EXIT_YES, "함수 호출 실패, exit");
         }
     
         // 3. 함수 반환값 출력 (결과가 있는 경우)
@@ -134,13 +119,13 @@ daPgCopyEnd(qry_t *spQry)
     PGresult *res = NULL;
 
     if (PQputCopyEnd(spQry->spPgConn, NULL) != 1) {
-        daPgDie(spQry, NULL, "PQputCopyEnd failed");
+        daPgDie(spQry, NULL, EXIT_YES, "PQputCopyEnd failed");
         return -1;
     }
 
     while ((res = PQgetResult(spQry->spPgConn)) != NULL) {
         if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-            daPgLive(spQry, res, "COPY result failed");
+            daPgDie(spQry, res, EXIT_NO, "COPY result failed");
             daStopQry(spQry);
             LOGE("[%s] 복귀..?? \n", spQry->caTitle);
             return -1;
@@ -154,73 +139,36 @@ daPgCopyEnd(qry_t *spQry)
     return 0;
 }
 
-#if 0
 int
-daInsertToPostgre(qry_t *spQry)
-{
-    int         iRet;
-    PGresult    *res = NULL;
-
-    res = PQexec(spQry->spPgConn, spQry->cpCopyCmd);
-    if (res == NULL) {
-        daPgDie(spQry, NULL, "PQexec returned NULL");
-    }
-
-    if (PQresultStatus(res) != PGRES_COPY_IN) {
-        LOGE("[%s] COPY FROM STDIN, copy cmd:[%s]\n", spQry->caTitle, spQry->cpCopyCmd);
-        daPgDie(spQry, res, "COPY FROM STDIN start failed");
-    }
-    PQclear(res);
-    res = NULL;
-    
-    iRet = PQputCopyData(spQry->spPgConn, spQry->cpSelResult, (int)strlen(spQry->cpSelResult));
-    if (iRet != 1) {
-        LOGE("[%s] PQputCopyData insert failed sel result:[%s]\n", spQry->caTitle, spQry->cpSelResult);
-        LOGE("PQputCopyData insert failed \n");
-    }
-
-    if (PQputCopyEnd(spQry->spPgConn, NULL) != 1) {
-        daPgDie(spQry, NULL, "PQputCopyEnd failed");
-    }
-
-    while ((res = PQgetResult(spQry->spPgConn)) != NULL) {
-        if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-            LOGE("[%s], copydata[%s]\n", spQry->caTitle, spQry->cpSelResult);
-            daPgDie(spQry, res, "COPY result failed");
-        }
-        PQclear(res);
-    }
-    PQclear(res);
-    LOGD("insert:%-23s 주기:%-4d 건수:%d \n"
-            , spQry->caTitle, spQry->iCycle, spQry->iSelCnt);
-    //LOGD("not insert:%-23s 주기:%-4d 건수:%d \n", spQry->caTitle, spQry->iCycle, spQry->iSelCnt);
-
-    FREE(spQry->cpSelResult);
-    //if (spQry->spPgConn) PQfinish(spQry->spPgConn);
-    return(0);
-
-}
-#endif
-
-int
-daMrgPrepare(qry_t *spQry)
+daPgPrepare (qry_t *spQry, char *cpStmtNm, char *cpQry, int iColCnt)
 {
     PGresult *res = NULL;
 
     TRY { 
-        snprintf(spQry->caMrgStmtName, sizeof(spQry->caMrgStmtName), "mrg_%s", spQry->caTitle);
-
-        if (gcDebugMode == DEF_YES) LOGD("PG prepare statement:[%s] \n", spQry->caMrgStmtName);
-        res = PQprepare(spQry->spPgConn, spQry->caMrgStmtName, spQry->cpMrgQry, spQry->iSelColCnt, NULL);
+        if (gcDebugMode == DEF_YES) LOGD("PG prepare statement:[%s] \n", cpStmtNm);
+        res = PQprepare (spQry->spPgConn, cpStmtNm, cpQry, iColCnt, NULL);
         if (res == NULL) {
-            daPgDie(spQry, NULL, "PQprepare merge returned NULL");
+            daPgDie (spQry, NULL, EXIT_YES, "PQprepare");
         }
       
-        if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-            daPgDie(spQry, res, "PQprepare merge failed");
+        if (PQresultStatus (res) != PGRES_COMMAND_OK) {
+            daPgDie (spQry, res, EXIT_YES, "PQprepare merge failed");
         }
      
-        PQclear(res);
+        PQclear (res);
+    }
+    CATCH 
+    FINALLY 
+    END 
+}
+
+
+int
+daMrgPrepare(qry_t *spQry)
+{
+    TRY { 
+        snprintf (spQry->caMrgStmtName, sizeof(spQry->caMrgStmtName), "mrg_%s", spQry->caTitle);
+        CALL (daPgPrepare(spQry, spQry->caMrgStmtName, spQry->cpMrgQry, spQry->iSelColCnt));
     }
     CATCH 
     FINALLY 
@@ -258,13 +206,13 @@ daMrgRowToPostgre(qry_t *spQry)
         FREE(paramValues);
         FREE(paramLengths);
         FREE(paramFormats);
-        daPgDie(spQry, NULL, "PQexecPrepared merge returned NULL");
+        daPgDie(spQry, NULL, EXIT_YES, "PQexecPrepared merge returned NULL");
         return -1;
     }
 
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         LOGE("[%s] merge failed col_cnt:%d, sql:[%s]\n", spQry->caTitle, spQry->iSelColCnt, spQry->cpMrgQry);
-        daPgDie(spQry, res, "PQexecPrepared merge failed");
+        daPgDie(spQry, res, EXIT_YES, "PQexecPrepared merge failed");
 
         FREE(paramValues);
         FREE(paramLengths);
@@ -278,6 +226,68 @@ daMrgRowToPostgre(qry_t *spQry)
     FREE(paramLengths);
     FREE(paramFormats);
 
+    return 0;
+}
+
+int
+daUpdPrepare(qry_t *spQry)
+{
+    TRY { 
+        spQry->cpIRsltUpdStmtName = "update_table";
+        spQry->cpRsltUpdQry = 
+            "UPDATE s_run_log_collect SET save_time=now(),"
+            "result_count = $2, cycle = $3, hms = $4, result = $5, elapsed_time = $6, run_index = $7, pid = $8, "
+            "error_part = $9, error_code = $10, error_msg = $11 "
+            "WHERE title = $1";
+        CALL(daPgPrepare(spQry, spQry->cpIRsltUpdStmtName, spQry->cpRsltUpdQry, 11));
+    } 
+    CATCH 
+    FINALLY 
+    END 
+}
+
+int
+daUpdExec(qry_t *spQry, char *cpStmtNm, int iColCnt, const char **cppParams)
+{
+    PGresult   *res = NULL;
+
+    res = PQexecPrepared(spQry->spPgConn, cpStmtNm, iColCnt, cppParams, NULL, NULL, 0);
+    if (res == NULL) {
+        daPgDie(spQry, NULL, EXIT_YES, "PQexecPrepared");
+        return -1;
+    }
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        LOGE("[%s] update failed col_cnt:%d, sql:[%s]\n", spQry->caTitle, iColCnt, spQry->cpRsltUpdQry);
+        daPgDie(spQry, res, EXIT_YES, "PQexecPrepared");
+        return -2;
+    }
+
+    PQclear(res);
+    return 0;
+}
+
+int
+daUpdInit(qry_t *spQry)
+{
+    PGresult   *res = NULL;
+    // save_time을 특정 고정값으로 맞추거나, 현재 시간 기준 초기 생성
+    const char *cpSql = 
+        "INSERT INTO s_run_log_collect (title) "
+        "VALUES ($1)"
+        "ON CONFLICT (title) DO NOTHING";
+
+    const char *cppParams[1] = { spQry->caTitle };
+
+    res = PQexecParams (spQry->spPgConn, cpSql, 1, NULL, cppParams, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        LOGE("[%s] 초기 insert 실패 sql:[%s]\n", spQry->caTitle, cpSql);
+        daPgDie(spQry, res, EXIT_YES, "PQexecParams");
+        PQclear(res);
+        return -2;
+    }
+    PQclear(res);
     return 0;
 }
 

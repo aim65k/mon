@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <time.h>
 #include "main_dbd.h"
 #include "worker_dbd.h"
 #include "insert_dbd.h"
@@ -5,16 +7,73 @@
 
 extern qry_info_t       sQryInfo;
 extern char             gcOnlyOneCycle;
+extern int              giArgQryIdx;
+extern pid_t            giMyPid;
 thd_info_t              sThdInfo={0, };
 
 extern int daDBOpen(qry_t *spQry);
 extern int daDBPrepare(qry_t *spQry);
 extern int daDBSelect(qry_t *spQry);
 
+
+static int
+daUpdWoker(qry_t *spQry)
+{
+    char    caCycle[8];
+    char    caHms[16];
+    char    caRsltCnt[8];
+    char    caElapTime[8];
+    char    caErrCd[8];
+    char    caIdx[8];
+    char    caPid[8];
+    char    caRslt[2];
+
+    TRY { 
+        snprintf(caCycle, sizeof(caCycle), "%d", spQry->iCycle);
+
+        snprintf(caRsltCnt   , sizeof(caRsltCnt) , "%d", spQry->iSelColCnt   );
+        if (spQry->iCycle) strcpy(caHms, "");
+        else snprintf(caHms, sizeof(caHms), "%02d:%02d:%02d", spQry->sHms.iH, spQry->sHms.iM, spQry->sHms.iS);
+
+        memset(caRslt, 0x00, sizeof(caRslt));
+        caRslt[0] = spQry->cRslt;
+
+        snprintf(caElapTime  , sizeof(caElapTime), "%d", spQry->iElapSec     );
+        snprintf(caIdx     , sizeof(caIdx)   , "%d", giArgQryIdx);
+        snprintf(caPid     , sizeof(caPid)   , "%d", giMyPid);
+        snprintf(caErrCd     , sizeof(caErrCd)   , "%d", spQry->sErr.iErrCd  );
+
+
+        const char *cppParams[11] = {
+                spQry->caTitle      ,   // $1: WHERE title
+                caRsltCnt           ,   // $2: result_count
+                caCycle             ,   // $3: cycle
+                caHms               ,   // $4: hms
+                caRslt              ,   // $5: result
+                caElapTime          ,   // $6: elapsed_time
+                caIdx               ,   // $7: run_index
+                caPid               ,   // $8: pid
+                spQry->sErr.caPart  ,   // $9: error_part
+                caErrCd             ,   // $10: error_code
+                spQry->sErr.caErrMsg    // $11: error_msg
+            };
+
+        CALL(daUpdExec(spQry, spQry->cpIRsltUpdStmtName, 11, cppParams));
+    } 
+    CATCH 
+    FINALLY 
+    END 
+}
+
 static int
 daWorkerMain(qry_t *spQry)
 {
+    char     cErr=DEF_NO;
+    struct timespec sStart, sEnd;
+
     TRY { 
+        // start 
+        CLOCK_GETTIME(&sStart);
         if (spQry->cRunMethod == RUN_METHOD_SELECT) {
             CALL(daPgExecFunc(spQry));
         }
@@ -25,14 +84,23 @@ daWorkerMain(qry_t *spQry)
 
             if (spQry->cRunMethod == RUN_METHOD_INSERT) CALL(daPgCopyEnd(spQry));
         }
+        spQry->cRslt = DEF_YES;
     } 
     CATCH 
+        cErr=DEF_YES;
     FINALLY 
+        // end
+        extern int daStopQry(qry_t *spQry);
+        CLOCK_GETTIME(&sEnd);
+        spQry->iElapSec = (sEnd.tv_sec*NANO_CLOCK+sEnd.tv_nsec - sStart.tv_sec*NANO_CLOCK+sStart.tv_nsec)/1000;
+        daUpdWoker(spQry);
+        
+        if(cErr == DEF_YES) {
+            daStopQry(spQry);
+        }
     END 
 }
 
-#include <stdio.h>
-#include <time.h>
 
 /**
  * 특정 시각(시, 분, 초)을 기준으로 오늘 또는 내일의 Unix 타임스탬프(초)를 구합니다.
@@ -142,6 +210,9 @@ static void
 
     daDBOpen(spQry);
     daPgOpen(spQry);
+
+    daUpdInit(spQry);       // insert collect
+    daUpdPrepare(spQry);    // update prepare 
 
     if (spQry->cRunMethod != RUN_METHOD_SELECT) {
         if (daDBPrepare(spQry)) return NULL;

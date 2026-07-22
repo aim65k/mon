@@ -12,7 +12,12 @@ int daPgCopyEnd(qry_t *spQry);
 
 int daMrgPrepare(qry_t *spQry);
 int daMrgRowToPostgre(qry_t *spQry);
-void daPrintInsReslt(qry_t *spQry);
 int daPgExecFunc(qry_t *spQry); 
+
+int daUpdPrepare(qry_t *spQry);
+int daUpdExec(qry_t *spQry, char *cpStmtNm, int iColCnt, const char **cppParams);
+int daUpdInit(qry_t *spQry);
+
+void daPrintInsReslt(qry_t *spQry);
 
 #endif

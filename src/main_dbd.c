@@ -12,7 +12,8 @@ qry_info_t      sQryInfo={0, };
 static char scStdoutYn = DEF_NO;
 static char scaQryFileNm[128];
 static char scaArgQryFileNm[128];
-static int  siArgQryIdx=-1;
+       int  giArgQryIdx=-1;
+       pid_t giMyPid;
        char gcDebugMode = DEF_NO;  
        char gcOnlyOneCycle = DEF_NO;
        char scRestartYn=DEF_NO;
@@ -46,10 +47,10 @@ daGetDupChkFileNm(char *cpFileNm, int iFileNmLen)
     }
     else {  // for index of file
         if (gcOnlyOneTitle == DEF_YES) {
-            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s.dat", cpDir, scaPgNm, siArgQryIdx, scaTgtTitle);
+            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s.dat", cpDir, scaPgNm, giArgQryIdx, scaTgtTitle);
         }
         else {
-            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d.dat", cpDir, scaPgNm, siArgQryIdx);
+            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d.dat", cpDir, scaPgNm, giArgQryIdx);
         }
     }
     return;
@@ -77,10 +78,10 @@ daGetLogFileNm(char *cpFileNm, int iFileNmLen)
     }
     else {  // for index of file
         if (gcOnlyOneTitle == DEF_YES) {
-            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s_%s.log", cpDir, scaPgNm, siArgQryIdx, scaTgtTitle, caDt);
+            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s_%s.log", cpDir, scaPgNm, giArgQryIdx, scaTgtTitle, caDt);
         }
         else {
-            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s.log", cpDir, scaPgNm, siArgQryIdx, caDt);
+            snprintf(cpFileNm, iFileNmLen, "%s/%s_%02d_%s.log", cpDir, scaPgNm, giArgQryIdx, caDt);
         }
     }
     return;
@@ -170,7 +171,7 @@ daReadQueryFile()
     
     TRY {
 
-        if(siArgQryIdx < 0) {
+        if(giArgQryIdx < 0) {
             if(strlen(scaQryFileNm) <=  0) {
                 EXIT("cfg file name not found \n");
             }
@@ -182,9 +183,9 @@ daReadQueryFile()
             }
         }
         else {
-            fpFile = fmemopen((void *)scpaQry[siArgQryIdx-1], siaQryLen[siArgQryIdx-1], "r");
+            fpFile = fmemopen((void *)scpaQry[giArgQryIdx-1], siaQryLen[giArgQryIdx-1], "r");
             if(fpFile == NULL) {
-                LOGE("fmemopen() fail, idx:%d, [%d,%s] \n", siArgQryIdx, errno, strerror(errno));
+                LOGE("fmemopen() fail, idx:%d, [%d,%s] \n", giArgQryIdx, errno, strerror(errno));
                 THROW(1);
             }
         }
@@ -886,7 +887,7 @@ daGetOpt(int argc, char **argv)
         while((iOpt=getopt(argc, argv, "q:T:n:CDsrhv")) != -1) {
             switch(iOpt) {
                 case    'q':    strcpy(scaArgQryFileNm, optarg);    break;  // query file
-                case    'n':    siArgQryIdx = atoi(optarg);         break;  // index of query file
+                case    'n':    giArgQryIdx = atoi(optarg);         break;  // index of query file
                 case    'C':    gcOnlyOneCycle  = DEF_YES;          break;  // only check sql
                 case    'D':    gcDebugMode = DEF_YES;              break;  // debug mode
                 case    'T':    strcpy(scaTgtTitle, optarg);        
@@ -902,11 +903,11 @@ daGetOpt(int argc, char **argv)
         }
 
         // 필수 인자 검사
-        if (strlen(scaArgQryFileNm) <= 0 && (siArgQryIdx < 1 || siArgQryIdx > siQryCnt)) {
+        if (strlen(scaArgQryFileNm) <= 0 && (giArgQryIdx < 1 || giArgQryIdx > siQryCnt)) {
             daUsage("-n 실행할 query index는 필수입니다.", argv);
         }
 
-        if (siArgQryIdx < 0 && strlen(scaArgQryFileNm) <= 0)  { 
+        if (giArgQryIdx < 0 && strlen(scaArgQryFileNm) <= 0)  { 
             daUsage("-q 실행할 query file이름은 필수 입니다.", argv);
         }
 
@@ -917,6 +918,7 @@ daGetOpt(int argc, char **argv)
         else {
             strcpy(scaQryFileNm, scaArgQryFileNm);
         }
+        giMyPid = getpid();
     } 
     CATCH 
     FINALLY 

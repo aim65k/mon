@@ -24,14 +24,21 @@ static const char *cpDbName;
 /* ========================================================================= */
 
 static void
-daPostgresDie(PGconn *conn, const char *msg)
+daPostgresDie(qry_t *spQry, char cExitYn, PGconn *conn, const char *msg)
 {
+    spQry->cRslt = DEF_NO;
+    spQry->sErr.iErrCd = 0;
     if (conn) {
         LOGE("POSTGRES ERROR [%s] %s\n", msg, PQerrorMessage(conn));
+        snprintf(spQry->sErr.caPart, sizeof(spQry->sErr.caPart), "%s", msg);
+        snprintf(spQry->sErr.caErrMsg, sizeof(spQry->sErr.caErrMsg), "%s", PQerrorMessage(conn));
     } else {
         LOGE("POSTGRES ERROR [%s]\n", msg);
+        snprintf(spQry->sErr.caPart, sizeof(spQry->sErr.caPart), "%s", msg);
+        snprintf(spQry->sErr.caErrMsg, sizeof(spQry->sErr.caErrMsg), "%s", "");
     }
-    exit(1);
+    if(cExitYn == EXIT_YES) exit(1);
+    return;
 }
 
 static void
@@ -197,7 +204,7 @@ daDBOpen(qry_t *spQry)
     conn = PQconnectdb(conninfo);
     
     if (PQstatus(conn) != CONNECTION_OK) {
-        daPostgresDie(conn, "PQconnectdb failed");
+        daPostgresDie(spQry, EXIT_YES, conn, "PQconnectdb failed");
         return -1;
     }
     
@@ -311,7 +318,7 @@ daDBSelect(qry_t *spQry)
     
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         LOGE("[%s] PQexec SELECT failed: %s\n", spQry->caTitle, PQerrorMessage(conn));
-        PQclear(res);
+        daPostgresDie(spQry, EXIT_NO, conn, "PQexec SELECT failed");
         return -1;
     }
     
@@ -371,7 +378,6 @@ daDBSelect(qry_t *spQry)
                 } else {
                     spQry->sDb.colbuf[col][spQry->sDb.col_buf_size[col] - 1] = '\0';
                     dcAllTrimLen(spQry->sDb.colbuf[col], (int)strlen(spQry->sDb.colbuf[col]));
-                    
                     snprintf(spQry->cppMrgRow[col], spQry->sDb.col_buf_size[col],
                              "%s", spQry->sDb.colbuf[col]);
                 }
@@ -382,6 +388,7 @@ daDBSelect(qry_t *spQry)
         
         if (spQry->cRunMethod == RUN_METHOD_INSERT) {
             if (daPgCopyPutRow(spQry, rowbuf) != 0) {
+                daPostgresDie(spQry, EXIT_YES, conn, "PQputCopyData failed");
                 FREE(rowbuf);
                 PQclear(res);
                 spQry->sDb.pg_result = NULL;

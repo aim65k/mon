@@ -348,87 +348,11 @@ LEFT JOIN
 
 
 #################################
-## 28. S_SQL_ELAPSED_TOPN - 5분
+## 28. S_SQL_ELAPSED_TOPN 
+## 필요없는 테이블이라서 삭제 처리
 #################################
-[S_SQL_ELAPSED_TOPN, N, 300]
-INSERT INTO S_SQL_ELAPSED_TOPN
-(
-	con_id,
-	rnk,
-	sql_id,
-	plan_hash_value,
-	parsing_schema_name,
-	sql_text_preview,
-	executions,
-	elapsed_time_cum_us,
-	cpu_time_cum_us,
-	buffer_gets_cum,
-	disk_reads_cum,
-	avg_elapsed_ms,
-	avg_cpu_ms,
-	avg_wait_ms
-)
-SELECT
-    CON_ID,
-    RNK,
-    SQL_ID,
-    PLAN_HASH_VALUE,
-    PARSING_SCHEMA_NAME,
-    SQL_TEXT_PREVIEW,
-    EXECUTIONS,
-    ELAPSED_TIME_CUM_US,
-    CPU_TIME_CUM_US,
-    BUFFER_GETS_CUM,
-    DISK_READS_CUM,
-    AVG_ELAPSED_MS,
-    AVG_CPU_MS,
-    AVG_WAIT_MS
-FROM
-(
-    SELECT
-        AGG.CON_ID,
-        AGG.SQL_ID,
-        AGG.PARSING_SCHEMA_NAME,
-        AGG.SQL_TEXT_PREVIEW,
-        AGG.EXECUTIONS,
-        AGG.ELAPSED_TIME AS ELAPSED_TIME_CUM_US,
-        AGG.CPU_TIME     AS CPU_TIME_CUM_US,
-        AGG.BUFFER_GETS  AS BUFFER_GETS_CUM,
-        AGG.DISK_READS   AS DISK_READS_CUM,
-        ROUND(AGG.ELAPSED_TIME / NULLIF(AGG.EXECUTIONS, 0) / 1000, 2) AS AVG_ELAPSED_MS,
-        ROUND(AGG.CPU_TIME     / NULLIF(AGG.EXECUTIONS, 0) / 1000, 2) AS AVG_CPU_MS,
-        ROUND(GREATEST(AGG.ELAPSED_TIME - AGG.CPU_TIME, 0) / NULLIF(AGG.EXECUTIONS, 0) / 1000, 2) AS AVG_WAIT_MS,
-        AGG.PLAN_HASH_VALUE,
-        ROW_NUMBER() OVER
-        (
-            PARTITION BY AGG.CON_ID
-            ORDER BY AGG.ELAPSED_TIME / NULLIF(AGG.EXECUTIONS, 0) DESC
-        ) AS RNK
-    FROM
-    (
-        SELECT
-            0 AS CON_ID,
-            S.SQL_ID,
-            MAX(S.PARSING_SCHEMA_NAME) AS PARSING_SCHEMA_NAME,
-            MAX(SUBSTR(S.SQL_TEXT, 1, 1000)) AS SQL_TEXT_PREVIEW,
-            SUM(S.EXECUTIONS) AS EXECUTIONS,
-            SUM(S.ELAPSED_TIME) AS ELAPSED_TIME,
-            SUM(S.CPU_TIME) AS CPU_TIME,
-            SUM(S.BUFFER_GETS) AS BUFFER_GETS,
-            SUM(S.DISK_READS) AS DISK_READS,
-            S.PLAN_HASH_VALUE
-        FROM V$SQL S
-        WHERE S.EXECUTIONS >= 5
-          AND S.SQL_ID IS NOT NULL
-          AND S.PARSING_SCHEMA_NAME NOT IN ('SYS','SYSTEM')
-          AND  PARSING_SCHEMA_NAME <> 'ITSTONE'
-        GROUP BY
-            S.SQL_ID,
-            S.PLAN_HASH_VALUE
-    ) AGG
-)
-WHERE RNK <= 20
-;
+
+
 
 #################################
 ## 29. S_SQL_LITERAL_STAT - 5분
@@ -603,7 +527,7 @@ WHERE tm.STAT_NAME IN
 );
 
 #################################
-## 34. S_TABLESPACE_USAGE - 60초
+## 34. S_TABLESPACE_USAGE - 60초 (PERMANENT/TEMP 및 UNDO 사용률)
 #################################
 [S_TABLESPACE_USAGE, Y, 60]
 INSERT INTO ITSTONE.S_TABLESPACE_USAGE
@@ -657,6 +581,64 @@ LEFT JOIN
     GROUP BY TABLESPACE_NAME
 ) DF
   ON DF.TABLESPACE_NAME = M.TABLESPACE_NAME
+UNION ALL
+SELECT
+    0                                                                       AS CON_ID,
+    NULL                                                                    AS PDB_NAME,
+    T.TABLESPACE_NAME                                                       AS TABLESPACE_NAME,
+    ROUND(
+        CASE
+            WHEN DF.MAX_SIZE_BYTES > 0
+            THEN NVL(U.USED_BYTES, 0) / DF.MAX_SIZE_BYTES * 100
+            ELSE NULL
+        END, 2
+    )                                                                       AS USED_PERCENT,
+    ROUND(NVL(U.USED_BYTES, 0) / 1024 / 1024, 2)                            AS USED_MB,
+    ROUND(DF.MAX_SIZE_BYTES / 1024 / 1024, 2)                               AS TOTAL_MB,
+    DF.AUTOEXTEND_YN                                                        AS AUTOEXTEND_YN,
+    ROUND(DF.MAX_SIZE_BYTES / 1024 / 1024, 2)                               AS MAX_SIZE_MB
+FROM DBA_TABLESPACES T
+JOIN
+(
+    SELECT
+        TABLESPACE_NAME,
+        CASE
+            WHEN MAX(CASE WHEN AUTOEXTENSIBLE = 'YES' THEN 1 ELSE 0 END) = 1
+            THEN 'YES'
+            ELSE 'NO'
+        END                                                                 AS AUTOEXTEND_YN,
+        SUM(
+            CASE
+                WHEN AUTOEXTENSIBLE = 'YES' THEN
+                     CASE WHEN MAXBYTES = 0 THEN BYTES ELSE MAXBYTES END
+                ELSE BYTES
+            END
+        )                                                                   AS MAX_SIZE_BYTES
+    FROM DBA_DATA_FILES
+    GROUP BY TABLESPACE_NAME
+) DF
+  ON DF.TABLESPACE_NAME = T.TABLESPACE_NAME
+LEFT JOIN
+(
+    SELECT
+        TABLESPACE_NAME,
+        SUM(
+            CASE
+                WHEN STATUS IN ('ACTIVE', 'UNEXPIRED') THEN BYTES
+                ELSE 0
+            END
+        )                                                                   AS USED_BYTES
+    FROM DBA_UNDO_EXTENTS
+    GROUP BY TABLESPACE_NAME
+) U
+  ON U.TABLESPACE_NAME = T.TABLESPACE_NAME
+WHERE T.CONTENTS = 'UNDO'
+  AND NOT EXISTS
+      (
+          SELECT 1
+          FROM DBA_TABLESPACE_USAGE_METRICS M
+          WHERE M.TABLESPACE_NAME = T.TABLESPACE_NAME
+      )
 ;
 
 #################################

@@ -18,35 +18,28 @@
 extern char gcOnlyOneCycle;
 extern char  gcDebugMode;
 
+
 static void 
-daOracleDie(OCIError *errhp, const char *msg)
+daOracleDie(qry_t *spQry, OCIError *errhp, char cExitYn, const char *msg)
 {
     text errbuf[1024];
     sb4 errcode = 0;
 
+    spQry->cRslt = DEF_NO;
     if (errhp) {
         OCIErrorGet(errhp, 1, NULL, &errcode, errbuf, sizeof(errbuf), OCI_HTYPE_ERROR);
         LOGE("OCI ERROR [%s] code=%d msg=%s\n", msg, errcode, errbuf);
+        spQry->sErr.iErrCd = errcode;
+        snprintf(spQry->sErr.caPart, sizeof(spQry->sErr.caPart), "%s", msg);
+        snprintf(spQry->sErr.caErrMsg, sizeof(spQry->sErr.caErrMsg), "%s", errbuf);
     } else {
+        spQry->sErr.iErrCd = 0;
+        snprintf(spQry->sErr.caPart, sizeof(spQry->sErr.caPart), "%s", msg);
+        snprintf(spQry->sErr.caErrMsg, sizeof(spQry->sErr.caErrMsg), "%s", "");
         LOGE("OCI ERROR [%s]\n", msg);
     }
-
-    exit(1);
-}
-
-static void 
-daOracleLive(OCIError *errhp, const char *msg)
-{
-    text errbuf[1024];
-    sb4 errcode = 0;
-
-    if (errhp) {
-        OCIErrorGet(errhp, 1, NULL, &errcode, errbuf, sizeof(errbuf), OCI_HTYPE_ERROR);
-        LOGE("OCI ERROR [%s] code=%d msg=%s\n", msg, errcode, errbuf);
-    } else {
-        LOGE("OCI ERROR [%s]\n", msg);
-    }
-    return;
+    
+    if(cExitYn == EXIT_YES) exit(1);
 }
 
 static void 
@@ -86,15 +79,15 @@ daDBOpen(qry_t *spQry)
     daOralceInit(spQry);
 
     if (OCIEnvCreate(&envhp, OCI_THREADED | OCI_OBJECT, NULL, NULL, NULL, NULL, 0, NULL) != OCI_SUCCESS) {
-        daOracleDie(NULL, "OCIEnvCreate failed");
+        daOracleDie(spQry, NULL, EXIT_YES, "OCIEnvCreate failed");
     }
 
     if (OCIHandleAlloc(envhp, (void **)&errhp, OCI_HTYPE_ERROR, 0, NULL) != OCI_SUCCESS)
-        daOracleDie(NULL, "OCIHandleAlloc ERROR failed");
+        daOracleDie(spQry, NULL, EXIT_YES, "OCIHandleAlloc ERROR failed");
 
     if (OCILogon(envhp, errhp, &svchp, (OraText *)cpUser, (ub4)strlen(cpUser)
             , (OraText *)cpPass, (ub4)strlen(cpPass), (OraText *)cpDb, (ub4)strlen(cpDb)) != OCI_SUCCESS) {
-        daOracleDie(errhp, "OCILogon failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCILogon failed");
     }
 
     spQry->sDb.ora_env = envhp;
@@ -228,7 +221,7 @@ daDBPrepare(qry_t *spQry)
 
     // 1. Statement 핸들 할당
     if (OCIHandleAlloc(envhp, (void **)&stmthp, OCI_HTYPE_STMT, 0, NULL) != OCI_SUCCESS) {
-        daOracleDie(errhp, "OCIHandleAlloc STMT failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCIHandleAlloc STMT failed");
         return -1;
     }
     
@@ -237,7 +230,7 @@ daDBPrepare(qry_t *spQry)
     // 2. SQL Prepare
     rc = OCIStmtPrepare(stmthp, errhp, (const OraText *)sql_text, (ub4)strlen(sql_text), OCI_NTV_SYNTAX, OCI_DEFAULT);
     if (rc != OCI_SUCCESS) {
-        daOracleDie(errhp, "OCIStmtPrepare failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCIStmtPrepare failed");
         return -1;
     }
 
@@ -249,14 +242,14 @@ daDBPrepare(qry_t *spQry)
     rc = OCIStmtExecute(svchp, stmthp, errhp, 0, 0, NULL, NULL, OCI_DESCRIBE_ONLY);
     if (rc != OCI_SUCCESS) {
         LOGE("[%s] OCIStmtExecute DESCRIBE_ONLY failed, sql_text:[%s]\n", spQry->caTitle, sql_text);
-        daOracleDie(errhp, "OCIStmtExecute DESCRIBE_ONLY failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCIStmtExecute DESCRIBE_ONLY failed");
         return -1;
     }
 
     // 4. 컬럼 개수 확인
     rc = OCIAttrGet(stmthp, OCI_HTYPE_STMT, &col_cnt, NULL, OCI_ATTR_PARAM_COUNT, errhp);
     if (rc != OCI_SUCCESS) {
-        daOracleDie(errhp, "OCIAttrGet PARAM_COUNT failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCIAttrGet PARAM_COUNT failed");
         return -1;
     }
 
@@ -308,7 +301,7 @@ daDBPrepare(qry_t *spQry)
                         , spQry->sDb.col_buf_size[i], SQLT_STR, &spQry->sDb.ind[i]
                         , &spQry->sDb.rlen[i], NULL, OCI_DEFAULT);
         if (rc != OCI_SUCCESS) {
-            daOracleDie(errhp, "OCIDefineByPos failed");
+            daOracleDie(spQry, errhp, EXIT_YES, "OCIDefineByPos failed");
             return -1;
         }
 
@@ -345,7 +338,7 @@ daDBSelect(qry_t *spQry)
 
     rc = OCIStmtExecute(svchp, stmthp, errhp, 0, 0, NULL, NULL, OCI_DEFAULT);
     if (rc != OCI_SUCCESS && rc != OCI_SUCCESS_WITH_INFO) {
-        daOracleDie(errhp, "OCIStmtExecute failed");
+        daOracleDie(spQry, errhp, EXIT_YES, "OCIStmtExecute failed");
         return -1;
     }
 
@@ -362,7 +355,7 @@ daDBSelect(qry_t *spQry)
             break;
 
         if (rc != OCI_SUCCESS && rc != OCI_SUCCESS_WITH_INFO) {
-            daOracleLive(errhp, "OCIStmtFetch2 failed");
+            daOracleDie(spQry, errhp, EXIT_NO, "OCIStmtFetch2 failed");
             extern int daStopQry(qry_t *spQry);
             daStopQry(spQry); 
             FREE(rowbuf);
