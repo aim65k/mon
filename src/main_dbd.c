@@ -209,11 +209,11 @@ daReadQueryFile()
             if(caLine[0] == '[') {
                 // 타이틀
                 dcNthString(cpLine+1, ',', 1, caTitle, sizeof(caTitle));
-        
                 if (gcOnlyOneTitle == DEF_YES && STRLCMP(caTitle, scaTgtTitle, strlen(caTitle))) {
                     cUseYn = DEF_NO;
                     continue;
                 }
+
 
                 // 사용유무
                 dcNthString(cpLine+1, ',', 2, caBuf, sizeof(caBuf));
@@ -241,6 +241,7 @@ daReadQueryFile()
                     sQryInfo.iLstIdx ++;
                 }
 
+                dcToUpper(caTitle);
                 snprintf(spQry->caTitle, sizeof(spQry->caTitle), "%s", caTitle);
 
                 // 수집주기
