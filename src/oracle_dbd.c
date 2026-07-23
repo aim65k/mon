@@ -55,16 +55,16 @@ daOralceInit(qry_t *spQry)
     spQry->cpSelResult = NULL;
 }
 
-const char *cpUser;
-const char *cpPass;
-const char *cpDb;
+static const char *scpUser;
+static const char *scpPass;
+static const char *scpSvcNm;
 
 void
 daDBEnv()
 {
-    cpUser = ENV_REQUIRED(ORACLE_USER);
-    cpPass = ENV_REQUIRED(ORACLE_PASS);
-    cpDb   = ENV_REQUIRED(ORACLE_SERVICE_NAME);
+    scpUser = ENV_REQUIRED(ORACLE_USER);
+    scpPass = ENV_REQUIRED(ORACLE_PASS);
+    scpSvcNm   = ENV_REQUIRED(ORACLE_SERVICE_NAME);
     return;
 }
 int 
@@ -73,7 +73,6 @@ daDBOpen(qry_t *spQry)
     OCIEnv    *envhp = NULL;
     OCIError  *errhp = NULL;
     OCISvcCtx *svchp = NULL;
-
 
 
     daOralceInit(spQry);
@@ -85,8 +84,8 @@ daDBOpen(qry_t *spQry)
     if (OCIHandleAlloc(envhp, (void **)&errhp, OCI_HTYPE_ERROR, 0, NULL) != OCI_SUCCESS)
         daOracleDie(spQry, NULL, EXIT_YES, "OCIHandleAlloc ERROR failed");
 
-    if (OCILogon(envhp, errhp, &svchp, (OraText *)cpUser, (ub4)strlen(cpUser)
-            , (OraText *)cpPass, (ub4)strlen(cpPass), (OraText *)cpDb, (ub4)strlen(cpDb)) != OCI_SUCCESS) {
+    if (OCILogon(envhp, errhp, &svchp, (OraText *)scpUser, (ub4)strlen(scpUser)
+            , (OraText *)scpPass, (ub4)strlen(scpPass), (OraText *)scpSvcNm, (ub4)strlen(scpSvcNm)) != OCI_SUCCESS) {
         daOracleDie(spQry, errhp, EXIT_YES, "OCILogon failed");
     }
 
@@ -416,3 +415,28 @@ daDBSelect(qry_t *spQry)
 
     return 0;
 }
+
+char
+daDBChkListener()
+{
+    char caCmd[256];
+    char caLine[128];
+    char cIsAlive = DEF_NO;
+    
+    // 외부 DB의 TNS Alias나 IP:PORT/SID 정보 입력
+    snprintf(caCmd, sizeof(caCmd), "tnsping %s 2>&1", scpSvcNm);
+    
+    FILE *fp = popen(caCmd, "r");
+    if (fp == NULL) return 0;
+
+    while (fgets(caLine, sizeof(caLine), fp) != NULL) {
+        if (strstr(caLine, "OK") || strstr(caLine, "확인")) {
+            cIsAlive = DEF_YES; // OK (응답 시간 ms) 출력 시 리스너 통신 성공
+            break;
+        }
+    }
+    pclose(fp);
+    return cIsAlive;
+}
+
+
